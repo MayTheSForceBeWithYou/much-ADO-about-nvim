@@ -35,11 +35,15 @@ local function validate_env()
   return true, nil
 end
 
---- Initialize the plugin state
+--- Initialize the plugin state and SDK connection
 local function initialize()
   state.reset()
   state.set('org_url', vim.env.ADO_ORG_URL)
   state.set('project', vim.env.ADO_PROJECT or nil)
+
+  -- Create SDK connection
+  local sdk = require('ado.sdk')
+  state.set('connection', sdk.new(vim.env.ADO_ORG_URL, sdk.auth.pat(vim.env.ADO_PAT)))
 end
 
 --- Display help/usage information

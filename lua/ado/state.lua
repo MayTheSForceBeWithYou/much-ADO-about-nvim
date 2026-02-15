@@ -10,6 +10,7 @@ local M = {}
 ---@field projects table|nil List of available projects
 ---@field work_items table|nil List of work items
 ---@field selected_work_item table|nil Currently selected work item
+---@field connection ado.sdk.Connection|nil SDK connection instance
 ---@field request_seq number Current request sequence ID for stale gating
 ---@field loading boolean Whether a request is in progress
 
@@ -24,6 +25,7 @@ function M.reset()
     projects = nil,
     work_items = nil,
     selected_work_item = nil,
+    connection = nil,
     request_seq = 0,
     loading = false,
   }

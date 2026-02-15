@@ -4,10 +4,11 @@ This document describes the high-level architecture of much-ADO-about-nvim.
 
 ## Design Principles
 
-1. **Separation of Concerns**: UI code never calls HTTP directly. API code never manipulates buffers.
+1. **Separation of Concerns**: UI code never calls HTTP directly. SDK code never manipulates buffers.
 2. **Centralized State**: All shared data flows through the state module.
 3. **Async Safety**: One request at a time, with stale response gating.
 4. **In-Memory Only**: No disk persistence; state resets on plugin reload.
+5. **SDK Independence**: The SDK (`lua/ado/sdk/`) has zero dependency on plugin state, config, or UI.
 
 ## Module Overview
 
@@ -16,8 +17,20 @@ lua/ado/
 ├── init.lua          # Plugin entry point, coordinates modules
 ├── config.lua        # Configuration management
 ├── state.lua         # Centralized state store
-├── api.lua           # Azure DevOps REST client
-├── requests.lua      # Async orchestration layer
+├── requests.lua      # Async orchestration layer (stale gating)
+├── sdk/              # Azure DevOps REST SDK (self-contained)
+│   ├── init.lua          # Connection factory (WebApi equivalent)
+│   ├── interfaces.lua    # LuaCATS type annotations
+│   ├── auth/
+│   │   ├── init.lua          # Auth module re-exports
+│   │   └── pat_handler.lua   # PAT auth handler
+│   ├── http/
+│   │   ├── rest_client.lua   # HTTP transport (curl + vim.system)
+│   │   └── errors.lua        # Normalized error types
+│   └── api/
+│       ├── client_base.lua       # Base class for domain clients
+│       ├── core_api.lua          # CoreApi: projects
+│       └── work_item_tracking_api.lua  # WorkItemTrackingApi: WIQL, work items
 └── ui/
     ├── layout.lua        # Window/split management
     ├── list.lua          # List pane rendering
@@ -31,6 +44,7 @@ lua/ado/
 - Exposes `setup()` for user configuration
 - Exposes `open()` as the main entry point
 - Validates environment before opening UI
+- Creates SDK connection and stores it in state
 - Routes to appropriate UI based on surface (workitems, prs, etc.)
 
 #### `config.lua`
@@ -40,23 +54,38 @@ lua/ado/
 
 #### `state.lua`
 - Single source of truth for runtime state
-- Stores: org URL, project, work items, selected item, loading state
+- Stores: org URL, project, work items, selected item, SDK connection, loading state
 - Manages request sequence IDs for stale gating
 - Future: reactive subscriptions for UI updates
-
-#### `api.lua`
-- Wraps Azure DevOps REST API calls
-- Uses `curl` via `vim.system()` for HTTP transport
-- Builds URLs, headers, and handles JSON encoding
-- Includes timeout handling (30s) and response size limits (10MB)
-- Parses HTTP status codes and curl errors into user-friendly messages
-- **Never touches UI** - only returns data via callbacks
 
 #### `requests.lua`
 - Orchestrates async requests with stale gating
 - Ensures one request at a time
+- Reads SDK connection from state and calls SDK methods
 - Updates state after successful responses
 - Provides high-level operations: `load_projects()`, `load_work_items()`
+
+#### `sdk/` (Azure DevOps REST SDK)
+
+The SDK is modeled after Microsoft's [azure-devops-node-api](https://github.com/microsoft/azure-devops-node-api). It is completely self-contained with no dependency on plugin modules.
+
+**Usage:**
+```lua
+local sdk = require('ado.sdk')
+local conn = sdk.new('https://dev.azure.com/myorg', sdk.auth.pat(pat))
+
+conn:get_core_api():get_projects(function(err, projects) end)
+conn:get_work_item_tracking_api():query_by_wiql(wiql, project, function(err, refs) end)
+conn:get_work_item_tracking_api():get_work_items(ids, project, function(err, items) end)
+```
+
+- **`sdk/init.lua`** - Connection factory. Lazy sub-client creation via `get_core_api()`, `get_work_item_tracking_api()`.
+- **`sdk/auth/`** - Pluggable auth handlers. PAT implemented; Bearer/NTLM extensible.
+- **`sdk/http/rest_client.lua`** - HTTP transport via `curl` + `vim.system()`. URL building, query encoding, JSON parsing. Auto-injects `api-version`.
+- **`sdk/http/errors.lua`** - Normalized `ApiError` tables with `message`, `status_code`, `type`, `raw` fields.
+- **`sdk/api/client_base.lua`** - Base class providing `rest` reference and `extract_collection()` helper.
+- **`sdk/api/core_api.lua`** - `get_projects()`, `get_project()`.
+- **`sdk/api/work_item_tracking_api.lua`** - `query_by_wiql()`, `get_work_items()`, `get_work_item()`.
 
 #### `ui/layout.lua`
 - Creates and manages the split layout
@@ -104,16 +133,31 @@ lua/ado/
 │  • Orchestrates async operations                            │
 │  • Manages stale request gating                             │
 │  • Updates state on success                                 │
+│  • Converts SDK ApiError → string at boundary               │
 └─────────────────────────────┬───────────────────────────────┘
                               │ calls
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                        api.lua                              │
+│                    SDK (ado.sdk)                             │
 │                                                             │
-│  • Executes HTTP via curl                                   │
-│  • Parses JSON responses                                    │
-│  • Returns data via callbacks                               │
+│  ┌──────────────┐  ┌──────────────────────────────────┐     │
+│  │  Connection   │→│  CoreApi / WorkItemTrackingApi    │     │
+│  │  (factory)    │  │  (domain methods)                │     │
+│  └──────────────┘  └──────────────┬───────────────────┘     │
+│                                   │                         │
+│                    ┌──────────────▼───────────────────┐     │
+│                    │  RestClient (HTTP transport)      │     │
+│                    │  curl + vim.system() + errors     │     │
+│                    └──────────────┬───────────────────┘     │
+│                                   │                         │
+│                    ┌──────────────▼───────────────────┐     │
+│                    │  AuthHandler (PAT / Bearer)       │     │
+│                    └─────────────────────────────────┘     │
+│                                                             │
 │  • NEVER touches buffers/windows                            │
+│  • NEVER reads from plugin state                            │
+│  • Returns data via callbacks                               │
+│  • Returns structured ApiError on failure                   │
 └─────────────────────────────┬───────────────────────────────┘
                               │ writes
                               ▼
@@ -121,6 +165,7 @@ lua/ado/
 │                       state.lua                             │
 │                                                             │
 │  • Central data store                                       │
+│  • SDK connection instance                                  │
 │  • Request sequence tracking                                │
 │  • Loading state                                            │
 └─────────────────────────────┬───────────────────────────────┘
@@ -146,7 +191,8 @@ To prevent race conditions and stale data:
 local seq = state.next_request_seq()
 state.set_loading(true)
 
-api.request(..., function(err, result)
+local wit = state.get('connection'):get_work_item_tracking_api()
+wit:get_work_items(ids, project, function(err, result)
   state.set_loading(false)
 
   if not state.is_current_seq(seq) then
@@ -163,11 +209,12 @@ end)
 
 To add a new ADO surface (e.g., Pull Requests):
 
-1. Create `lua/ado/ui/pr_list.lua` and `lua/ado/ui/pr_detail.lua`
-2. Add API methods in `api.lua` for PR endpoints
-3. Add request orchestrators in `requests.lua`
-4. Add state fields in `state.lua`
-5. Add routing in `init.lua._open_surface()`
-6. Add layout support in `layout.lua`
+1. Add a new SDK API client: `lua/ado/sdk/api/git_api.lua`
+2. Add `get_git_api()` factory method to `sdk/init.lua` Connection
+3. Create `lua/ado/ui/pr_list.lua` and `lua/ado/ui/pr_detail.lua`
+4. Add request orchestrators in `requests.lua`
+5. Add state fields in `state.lua`
+6. Add routing in `init.lua._open_surface()`
+7. Add layout support in `layout.lua`
 
 See [Development Guide](development.md) for detailed instructions.

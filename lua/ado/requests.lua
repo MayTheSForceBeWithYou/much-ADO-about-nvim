@@ -5,7 +5,12 @@
 local M = {}
 
 local state = require('ado.state')
-local api = require('ado.api')
+
+--- Get the SDK connection from state
+---@return ado.sdk.Connection
+local function get_connection()
+  return state.get('connection')
+end
 
 --- Execute a request with stale gating
 --- If a new request comes in, the old one's response will be ignored
@@ -50,7 +55,15 @@ end
 ---@param callback function|nil Called after projects are loaded
 function M.load_projects(callback)
   M.execute(
-    function(cb) api.get_projects(cb) end,
+    function(cb)
+      get_connection():get_core_api():get_projects(function(err, projects)
+        if err then
+          cb(err.message, nil)
+          return
+        end
+        cb(nil, projects)
+      end)
+    end,
     function(projects)
       state.set('projects', projects)
       if callback then callback(projects) end
@@ -77,9 +90,10 @@ function M.load_work_items(callback)
 
   M.execute(
     function(cb)
-      api.query_work_items(project, wiql, function(err, refs)
+      local wit = get_connection():get_work_item_tracking_api()
+      wit:query_by_wiql(wiql, project, function(err, refs)
         if err then
-          cb(err, nil)
+          cb(err.message, nil)
           return
         end
 
@@ -98,7 +112,13 @@ function M.load_work_items(callback)
         -- TODO: Handle pagination for large result sets
         ids = vim.list_slice(ids, 1, 200)
 
-        api.get_work_items(project, ids, cb)
+        wit:get_work_items(ids, project, function(wi_err, work_items)
+          if wi_err then
+            cb(wi_err.message, nil)
+            return
+          end
+          cb(nil, work_items)
+        end)
       end)
     end,
     function(work_items)
