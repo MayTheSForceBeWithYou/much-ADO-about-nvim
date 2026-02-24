@@ -107,6 +107,18 @@ local function setup_detail_keymaps(buf)
   vim.keymap.set('n', '<C-u>', '<C-u>', vim.tbl_extend('force', opts, { desc = 'Half page up' }))
   vim.keymap.set('n', 'gg', 'gg', vim.tbl_extend('force', opts, { desc = 'Go to top' }))
   vim.keymap.set('n', 'G', 'G', vim.tbl_extend('force', opts, { desc = 'Go to bottom' }))
+
+  -- Return to list pane
+  vim.keymap.set('n', '<CR>', function()
+    if layout.list_win and vim.api.nvim_win_is_valid(layout.list_win) then
+      vim.api.nvim_set_current_win(layout.list_win)
+    end
+  end, vim.tbl_extend('force', opts, { desc = 'Back to list' }))
+  vim.keymap.set('n', '<BS>', function()
+    if layout.list_win and vim.api.nvim_win_is_valid(layout.list_win) then
+      vim.api.nvim_set_current_win(layout.list_win)
+    end
+  end, vim.tbl_extend('force', opts, { desc = 'Back to list' }))
 end
 
 --- Open the work items layout (list + detail split)
@@ -134,15 +146,16 @@ function M.open_workitems()
 
   -- Step 2: Create windows and attach buffers BEFORE setting bufhidden=wipe
   -- This ensures buffers are "owned" by windows and won't be wiped
-  vim.cmd('vsplit')
-  layout.detail_win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(layout.detail_win, layout.detail_buf)
-
-  vim.cmd('wincmd h')
+  -- Use the current window for the list (left), create a new split for detail (right)
   layout.list_win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(layout.list_win, layout.list_buf)
 
-  -- Set list width
+  vim.cmd('rightbelow vsplit')
+  layout.detail_win = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_buf(layout.detail_win, layout.detail_buf)
+
+  -- Set list width (focus list first since set_width applies to target window)
+  vim.api.nvim_set_current_win(layout.list_win)
   vim.api.nvim_win_set_width(layout.list_win, ui_config.list_width)
 
   -- Step 3: Now configure buffers (including bufhidden=wipe) - safe because they're in windows
