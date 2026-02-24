@@ -4,6 +4,7 @@
 local M = {}
 
 ---@class AdoConfig
+---@field debug boolean Enable debug logging (visible in :messages)
 ---@field keymaps AdoKeymaps
 ---@field ui AdoUiConfig
 
@@ -20,6 +21,7 @@ local M = {}
 
 ---@type AdoConfig
 local defaults = {
+  debug = true,
   keymaps = {
     close = 'q',
     select = '<CR>',

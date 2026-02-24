@@ -39,7 +39,7 @@ function CoreApi:get_project(project_id, callback)
     callback(errors.validation('project_id is required'), nil)
     return
   end
-  self.rest:get('projects/' .. project_id, nil, nil, function(err, response)
+  self.rest:get('projects/' .. project_id, nil, { includeCapabilities = 'true' }, function(err, response)
     if err then
       callback(err, nil)
       return

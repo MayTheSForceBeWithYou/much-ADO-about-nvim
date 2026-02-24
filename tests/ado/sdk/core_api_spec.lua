@@ -53,13 +53,34 @@ describe('CoreApi', function()
   end)
 
   describe('get_project', function()
-    it('returns project data', function()
-      local project = { id = 'guid', name = 'MyProject' }
+    it('returns project data with capabilities', function()
+      local project = {
+        id = 'guid',
+        name = 'MyProject',
+        capabilities = {
+          processTemplate = { templateTypeId = 'process-guid-123' },
+        },
+      }
       local api = CoreApi.new(mock_rest(project))
 
       local result
       api:get_project('MyProject', function(_, p) result = p end)
       assert.equals('MyProject', result.name)
+      assert.equals('process-guid-123', result.capabilities.processTemplate.templateTypeId)
+    end)
+
+    it('passes includeCapabilities query param', function()
+      local captured_query
+      local rest = {
+        get = function(_, endpoint, project, query, callback)
+          captured_query = query
+          callback(nil, { id = 'guid', name = 'P' })
+        end,
+        post = function() end,
+      }
+      local api = CoreApi.new(rest)
+      api:get_project('P', function() end)
+      assert.equals('true', captured_query.includeCapabilities)
     end)
 
     it('validates project_id is required', function()

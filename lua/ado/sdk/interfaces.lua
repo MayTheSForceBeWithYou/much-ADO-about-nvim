@@ -44,6 +44,34 @@
 ---@field columns table[] Column definitions
 ---@field workItems ado.sdk.WorkItemReference[] Work item references
 
+---@class ado.sdk.FormControl
+---@field id string Field reference name (e.g. "System.Title")
+---@field label string Display label
+---@field controlType string "FieldControl"|"HtmlFieldControl"|"DateTimeControl"|etc
+---@field visible boolean
+---@field readOnly boolean
+
+---@class ado.sdk.FormGroup
+---@field id string
+---@field label string
+---@field visible boolean
+---@field controls ado.sdk.FormControl[]
+
+---@class ado.sdk.FormSection
+---@field id string
+---@field groups ado.sdk.FormGroup[]
+
+---@class ado.sdk.FormPage
+---@field id string
+---@field label string
+---@field pageType string "custom"|"history"|"links"|"attachments"
+---@field visible boolean
+---@field sections ado.sdk.FormSection[]
+
+---@class ado.sdk.FormLayout
+---@field pages ado.sdk.FormPage[]
+---@field systemControls ado.sdk.FormControl[]
+
 ---@alias ado.sdk.Callback fun(err: ado.sdk.ApiError|nil, result: any)
 
 return {}

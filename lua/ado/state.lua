@@ -13,6 +13,9 @@ local M = {}
 ---@field connection ado.sdk.Connection|nil SDK connection instance
 ---@field request_seq number Current request sequence ID for stale gating
 ---@field loading boolean Whether a request is in progress
+---@field process_id string|nil Project's process template GUID
+---@field wit_type_refs table<string, string> Maps display name → reference name
+---@field layouts table<string, ado.sdk.FormLayout> Maps display name → form layout
 
 ---@type AdoState
 local state = {}
@@ -28,6 +31,9 @@ function M.reset()
     connection = nil,
     request_seq = 0,
     loading = false,
+    process_id = nil,
+    wit_type_refs = {},
+    layouts = {},
   }
 end
 

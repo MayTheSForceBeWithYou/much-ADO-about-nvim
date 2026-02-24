@@ -120,4 +120,113 @@ describe('WorkItemTrackingApi', function()
       assert.equals('validation', got_err.type)
     end)
   end)
+
+  describe('get_work_item_type', function()
+    it('returns work item type definition', function()
+      local wit_type = {
+        name = 'Bug',
+        referenceName = 'Microsoft.VSTS.WorkItemTypes.Bug',
+      }
+      local api = WIT.new(mock_rest(wit_type))
+
+      local result
+      api:get_work_item_type('Bug', 'P', function(_, r) result = r end)
+      assert.equals('Bug', result.name)
+      assert.equals('Microsoft.VSTS.WorkItemTypes.Bug', result.referenceName)
+    end)
+
+    it('validates type_name is required', function()
+      local api = WIT.new(mock_rest({}))
+
+      local got_err
+      api:get_work_item_type('', 'P', function(e, _) got_err = e end)
+      assert.equals('validation', got_err.type)
+    end)
+
+    it('validates project is required', function()
+      local api = WIT.new(mock_rest({}))
+
+      local got_err
+      api:get_work_item_type('Bug', '', function(e, _) got_err = e end)
+      assert.equals('validation', got_err.type)
+    end)
+
+    it('propagates errors', function()
+      local api_err = { message = 'not found', type = 'http', status_code = 404 }
+      local api = WIT.new(mock_rest(nil, api_err))
+
+      local got_err
+      api:get_work_item_type('Bug', 'P', function(e, _) got_err = e end)
+      assert.equals('not found', got_err.message)
+    end)
+  end)
+
+  describe('get_work_item_type_layout', function()
+    it('returns form layout', function()
+      local form_layout = {
+        pages = { { id = 'page1', label = 'Details', sections = {} } },
+        systemControls = { { id = 'System.Title', label = 'Title' } },
+      }
+      local api = WIT.new(mock_rest(form_layout))
+
+      local result
+      api:get_work_item_type_layout('proc-id', 'Microsoft.VSTS.WorkItemTypes.Bug', function(_, r) result = r end)
+      assert.equals(1, #result.pages)
+      assert.equals('Details', result.pages[1].label)
+      assert.equals(1, #result.systemControls)
+    end)
+
+    it('uses org-scoped endpoint (nil project)', function()
+      local captured_project
+      local rest = {
+        get = function(_, endpoint, project, query, callback)
+          captured_project = project
+          callback(nil, { pages = {}, systemControls = {} })
+        end,
+        post = function() end,
+      }
+      local api = WIT.new(rest)
+      api:get_work_item_type_layout('proc-id', 'ref-name', function() end)
+      assert.is_nil(captured_project)
+    end)
+
+    it('overrides api-version to 7.1-preview.1', function()
+      local captured_query
+      local rest = {
+        get = function(_, endpoint, project, query, callback)
+          captured_query = query
+          callback(nil, { pages = {}, systemControls = {} })
+        end,
+        post = function() end,
+      }
+      local api = WIT.new(rest)
+      api:get_work_item_type_layout('proc-id', 'ref-name', function() end)
+      assert.equals('7.1-preview.1', captured_query['api-version'])
+    end)
+
+    it('validates process_id is required', function()
+      local api = WIT.new(mock_rest({}))
+
+      local got_err
+      api:get_work_item_type_layout('', 'ref', function(e, _) got_err = e end)
+      assert.equals('validation', got_err.type)
+    end)
+
+    it('validates wit_ref_name is required', function()
+      local api = WIT.new(mock_rest({}))
+
+      local got_err
+      api:get_work_item_type_layout('proc', '', function(e, _) got_err = e end)
+      assert.equals('validation', got_err.type)
+    end)
+
+    it('propagates errors', function()
+      local api_err = { message = 'fail', type = 'http', status_code = 500 }
+      local api = WIT.new(mock_rest(nil, api_err))
+
+      local got_err
+      api:get_work_item_type_layout('proc', 'ref', function(e, _) got_err = e end)
+      assert.equals('fail', got_err.message)
+    end)
+  end)
 end)

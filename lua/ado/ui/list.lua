@@ -5,6 +5,7 @@
 local M = {}
 
 local config = require('ado.config')
+local log = require('ado.log')
 local state = require('ado.state')
 local layout = require('ado.ui.layout')
 
@@ -76,6 +77,11 @@ function M.setup_keymaps(buf)
 
   vim.keymap.set('n', keymaps.select, function()
     M.select_current()
+    -- Focus the detail pane so the user can scroll/read it
+    local detail_win = layout.get_detail_win()
+    if detail_win and vim.api.nvim_win_is_valid(detail_win) then
+      vim.api.nvim_set_current_win(detail_win)
+    end
   end, vim.tbl_extend('force', opts, { desc = 'Select work item' }))
 
   vim.keymap.set('n', keymaps.next_item, function()
@@ -108,13 +114,49 @@ end
 --- Select the current item and update detail view
 function M.select_current()
   local work_items = state.get('work_items') or {}
-  if #work_items == 0 then return end
+  if #work_items == 0 then
+    log.debug('select_current: no work items in state')
+    return
+  end
 
   local item = work_items[cursor_line]
-  if item then
-    state.set('selected_work_item', item)
-    require('ado.ui.detail').render()
+  if not item then
+    log.debug('select_current: no item at cursor_line %d (have %d items)', cursor_line, #work_items)
+    return
   end
+
+  local fields = item.fields or {}
+  log.debug('select_current: #%d "%s" (type=%s, field_count=%d)',
+    item.id or 0,
+    fields['System.Title'] or '?',
+    vim.inspect(fields['System.WorkItemType']),
+    vim.tbl_count(fields))
+  state.set('selected_work_item', item)
+  require('ado.ui.detail').render()
+
+  -- Fetch layout if not cached, re-render when available
+  local wit_type = fields['System.WorkItemType']
+  if not wit_type then
+    log.debug('select_current: no System.WorkItemType field, skipping layout fetch')
+    return
+  end
+
+  local layouts = state.get('layouts') or {}
+  if layouts[wit_type] then
+    log.debug('select_current: layout already cached for "%s"', wit_type)
+    return
+  end
+
+  log.debug('select_current: triggering layout fetch for type "%s"', wit_type)
+  require('ado.requests').ensure_layout(wit_type, function()
+    -- Re-render only if this item is still selected
+    if state.get('selected_work_item') == item then
+      log.debug('select_current: re-rendering detail with layout for #%d', item.id or 0)
+      require('ado.ui.detail').render()
+    else
+      log.debug('select_current: item #%d no longer selected, skipping re-render', item.id or 0)
+    end
+  end)
 end
 
 --- Get the current cursor line

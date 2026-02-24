@@ -84,6 +84,10 @@ end
 ---@param body table|nil JSON body (will be encoded)
 ---@param callback ado.sdk.Callback Callback(err, decoded_response)
 function RestClient:request(method, url, body, callback)
+  -- Log the request (URL is safe — no auth credentials in it)
+  local log = require('ado.log')
+  log.debug('HTTP %s %s', method, url)
+
   local headers = {
     ['Content-Type'] = 'application/json',
   }
@@ -114,6 +118,7 @@ function RestClient:request(method, url, body, callback)
     vim.schedule(function()
       -- Handle curl execution failure
       if obj.code ~= 0 then
+        log.debug('HTTP transport error: curl exit code %d', obj.code)
         callback(errors.transport(obj.code, obj.stderr, obj.stdout), nil)
         return
       end
@@ -134,9 +139,12 @@ function RestClient:request(method, url, body, callback)
 
       -- Handle HTTP errors
       if http_code >= 400 then
+        log.debug('HTTP %d error for %s %s', http_code, method, url)
         callback(errors.http(http_code, response_body), nil)
         return
       end
+
+      log.debug('HTTP %d OK for %s %s (%d bytes)', http_code, method, url, #response_body)
 
       -- Parse JSON response
       if response_body == '' then
@@ -146,6 +154,7 @@ function RestClient:request(method, url, body, callback)
 
       local ok, decoded = pcall(vim.json.decode, response_body)
       if not ok then
+        log.debug('JSON parse error for %s %s', method, url)
         callback(errors.parse(response_body, decoded), nil)
         return
       end
