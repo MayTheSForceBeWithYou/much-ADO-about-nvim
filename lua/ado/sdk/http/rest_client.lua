@@ -83,13 +83,16 @@ end
 ---@param url string Full URL (already built via build_url + encode_query)
 ---@param body table|nil JSON body (will be encoded)
 ---@param callback ado.sdk.Callback Callback(err, decoded_response)
-function RestClient:request(method, url, body, callback)
+---@param opts table|nil Optional: { content_type = "application/json-patch+json" } for PATCH work item updates
+function RestClient:request(method, url, body, callback, opts)
   -- Log the request (URL is safe — no auth credentials in it)
   local log = require('ado.log')
   log.debug('HTTP %s %s', method, url)
 
+  opts = opts or {}
+  local content_type = opts.content_type or 'application/json'
   local headers = {
-    ['Content-Type'] = 'application/json',
+    ['Content-Type'] = content_type,
   }
   self._auth_handler:prepare_request(headers)
 
@@ -183,6 +186,19 @@ end
 function RestClient:post(endpoint, project, query, body, callback)
   local url = self:build_url(endpoint, project) .. self:encode_query(query)
   self:request('POST', url, body, callback)
+end
+
+--- Convenience: PATCH request (e.g. work item updates; use content_type for json-patch+json)
+---@param endpoint string API endpoint path
+---@param project string|nil Project scope
+---@param query table<string,string|number>|nil Additional query params
+---@param body table JSON body (array for json-patch)
+---@param callback ado.sdk.Callback
+---@param content_type string|nil Default "application/json-patch+json" for WIT PATCH
+function RestClient:patch(endpoint, project, query, body, callback, content_type)
+  local url = self:build_url(endpoint, project) .. self:encode_query(query)
+  local opts = { content_type = content_type or 'application/json-patch+json' }
+  self:request('PATCH', url, body, callback, opts)
 end
 
 --- Get the default API version

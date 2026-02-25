@@ -27,6 +27,14 @@
 ---@field visibility string "private"|"public"
 ---@field lastUpdateTime string ISO8601 timestamp
 
+---@class ado.sdk.WebApiTeam
+---@field id string Team GUID
+---@field name string Team name
+---@field projectId string Project GUID
+---@field projectName string Project name
+---@field url string API URL for this team
+---@field description string|nil Team description
+
 ---@class ado.sdk.WorkItemReference
 ---@field id number Work item ID
 ---@field url string API URL for this work item

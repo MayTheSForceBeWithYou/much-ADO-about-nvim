@@ -75,6 +75,137 @@ function M.load_projects(callback)
   )
 end
 
+--- Fetch teams in the current project (optionally only "my teams") and set state.team_area_paths.
+--- Each team is mapped to area path as projectName\teamName. Also updates cache.
+---@param opts table|nil Optional: { mine = true } to fetch only teams the user is a member of
+---@param callback function|nil Called with list of area path strings
+function M.load_teams(opts, callback)
+  local project = state.get('project')
+  if not project then
+    if callback then callback({}) end
+    return
+  end
+  opts = opts or { mine = true }
+  if type(opts) == 'function' then
+    callback = opts
+    opts = { mine = true }
+  end
+  local cache = require('ado.cache')
+  local org_url = state.get('org_url')
+  -- Return cached teams if we have them and caller didn't force refresh
+  if not opts.refresh then
+    local cached = cache.get_teams_cache(org_url, project)
+    if cached and #cached > 0 then
+      local paths = {}
+      for _, t in ipairs(cached) do
+        table.insert(paths, t.area_path or (t.projectName and t.name and (t.projectName .. '\\' .. t.name)))
+      end
+      state.set('team_area_paths', paths)
+      log.debug('load_teams: using %d cached teams', #paths)
+      if callback then callback(paths) end
+      return
+    end
+  end
+  log.debug('load_teams: fetching teams for project=%s mine=%s', project, opts.mine and 'true' or 'false')
+  M.execute(
+    function(cb)
+      get_connection():get_core_api():get_teams(project, { mine = opts.mine }, function(err, teams)
+        if err then
+          cb(err.message, nil)
+          return
+        end
+        cb(nil, teams)
+      end)
+    end,
+    function(teams)
+      local paths = {}
+      local for_cache = {}
+      for _, t in ipairs(teams or {}) do
+        local pname = t.projectName or project
+        local area_path = pname .. '\\' .. (t.name or '')
+        table.insert(paths, area_path)
+        table.insert(for_cache, { id = t.id, name = t.name, projectName = pname, area_path = area_path })
+      end
+      state.set('team_area_paths', paths)
+      cache.set_teams_cache(org_url, project, for_cache)
+      log.debug('load_teams: got %d teams', #paths)
+      if callback then callback(paths) end
+    end,
+    function(err)
+      log.debug('load_teams failed: %s', tostring(err))
+      state.set('team_area_paths', {})
+      if callback then callback({}) end
+    end
+  )
+end
+
+--- Fallback state names when the API does not return valid states for the work item type
+local STATE_FALLBACK = { 'To Do', 'In Progress', 'Done', 'Removed' }
+
+--- Load valid state names for a work item type (for the State field picker)
+---@param wit_type string Work item type display name (e.g. "Task", "Bug")
+---@param callback function Called with (err, state_names); state_names is empty on error
+function M.load_states_for_wit(wit_type, callback)
+  local project = state.get('project')
+  if not project or not wit_type or wit_type == '' then
+    if callback then callback('Project and work item type required', STATE_FALLBACK) end
+    return
+  end
+  get_connection():get_work_item_tracking_api():get_work_item_type_states(wit_type, project, function(err, names)
+    if err or not names or #names == 0 then
+      log.debug('load_states_for_wit: using fallback for type "%s" (err=%s)', wit_type, err and err or 'empty')
+      if callback then callback(nil, STATE_FALLBACK) end
+      return
+    end
+    if callback then callback(nil, names) end
+  end)
+end
+
+--- Update work item state via JSON Patch (Content-Type: application/json-patch+json)
+---@param id number Work item ID
+---@param new_state string New state value (e.g. "In Progress", "Done")
+---@param callback function|nil Called on completion: callback(err) with err nil on success
+function M.update_state(id, new_state, callback)
+  local project = state.get('project')
+  if not project then
+    local err = 'No project selected'
+    if callback then callback(err) else vim.notify(err, vim.log.levels.ERROR) end
+    return
+  end
+  if not id or not new_state or new_state == '' then
+    local err = 'Work item ID and state are required'
+    if callback then callback(err) else vim.notify(err, vim.log.levels.ERROR) end
+    return
+  end
+
+  local patch = {
+    { op = 'add', path = '/fields/System.State', value = new_state },
+  }
+  log.debug('update_state: PATCH work item #%d state=%s', id, new_state)
+  M.execute(
+    function(cb)
+      get_connection():get_work_item_tracking_api():update_work_item(id, project, patch, function(err, updated)
+        if err then
+          cb(err.message, nil)
+          return
+        end
+        cb(nil, updated)
+      end)
+    end,
+    function(updated)
+      -- Update in-memory state so detail view shows new state without refetch
+      local item = state.get('selected_work_item')
+      if item and item.id == id and item.fields then
+        item.fields['System.State'] = new_state
+      end
+      if callback then callback(nil) end
+    end,
+    function(err)
+      if callback then callback(err or 'Update failed') else vim.notify('Failed to update state: ' .. tostring(err), vim.log.levels.ERROR) end
+    end
+  )
+end
+
 --- Fetch and load work items for the current project
 ---@param callback function|nil Called after work items are loaded
 function M.load_work_items(callback)
@@ -84,13 +215,19 @@ function M.load_work_items(callback)
     return
   end
 
-  -- TODO: Make WIQL query configurable
-  local wiql = [[
+  local area_path = state.get('area_path')
+  local where_clauses = { '[System.TeamProject] = @project' }
+  if area_path then
+    where_clauses[#where_clauses + 1] =
+      string.format("[System.AreaPath] UNDER '%s'", area_path)
+  end
+
+  local wiql = string.format([[
     SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType]
     FROM WorkItems
-    WHERE [System.TeamProject] = @project
-    ORDER BY [System.Id] ASC
-  ]]
+    WHERE %s
+    ORDER BY [System.ChangedDate] DESC
+  ]], table.concat(where_clauses, ' AND '))
 
   log.debug('load_work_items: querying project=%s', project)
   M.execute(

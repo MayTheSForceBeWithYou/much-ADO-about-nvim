@@ -48,4 +48,31 @@ function CoreApi:get_project(project_id, callback)
   end)
 end
 
+--- Get teams in a project (optionally only teams the current user is a member of)
+---@param project_id string Project name or GUID
+---@param opts table|nil Optional: { mine = true } to return only teams the user is a member of
+---@param callback fun(err: ado.sdk.ApiError|nil, teams: ado.sdk.WebApiTeam[]|nil)
+function CoreApi:get_teams(project_id, opts, callback)
+  if not project_id or project_id == '' then
+    callback(errors.validation('project_id is required'), nil)
+    return
+  end
+  if type(opts) == 'function' then
+    callback = opts
+    opts = nil
+  end
+  opts = opts or {}
+  local query = {}
+  if opts.mine then
+    query['$mine'] = 'true'
+  end
+  self.rest:get('projects/' .. project_id .. '/teams', nil, query, function(err, response)
+    if err then
+      callback(err, nil)
+      return
+    end
+    callback(nil, self:extract_collection(response))
+  end)
+end
+
 return CoreApi

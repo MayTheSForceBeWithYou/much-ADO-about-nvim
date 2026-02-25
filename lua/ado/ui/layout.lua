@@ -90,9 +90,18 @@ local function setup_common_keymaps(buf)
   vim.keymap.set('n', keymaps.refresh, function()
     require('ado').refresh()
   end, { buffer = buf, silent = true, nowait = true, desc = 'Refresh' })
+
+  local step = config.get().ui.list_width_step
+  vim.keymap.set('n', 'H', function()
+    M.resize_list(-step)
+  end, { buffer = buf, silent = true, nowait = true, desc = 'Shrink list pane' })
+
+  vim.keymap.set('n', 'L', function()
+    M.resize_list(step)
+  end, { buffer = buf, silent = true, nowait = true, desc = 'Grow list pane' })
 end
 
---- Set up detail-specific keymaps (scrolling)
+--- Set up detail-specific keymaps (scrolling, edit State)
 ---@param buf number Buffer ID
 local function setup_detail_keymaps(buf)
   -- Guard: validate buffer before setting keymaps
@@ -119,6 +128,48 @@ local function setup_detail_keymaps(buf)
       vim.api.nvim_set_current_win(layout.list_win)
     end
   end, vim.tbl_extend('force', opts, { desc = 'Back to list' }))
+
+  -- Edit State: only when cursor is on the "State:" line; options are valid states for this work item type
+  vim.keymap.set('n', 'e', function()
+    local state_module = require('ado.state')
+    local row = vim.api.nvim_win_get_cursor(0)[1]
+    local lines = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)
+    local line_content = (lines and lines[1]) or ''
+    if not line_content:match('^State:') then
+      vim.notify("Press 'e' on the State line to edit", vim.log.levels.INFO)
+      return
+    end
+    local item = state_module.get('selected_work_item')
+    if not item or not item.id then
+      vim.notify('No work item selected', vim.log.levels.ERROR)
+      return
+    end
+    local wit_type = (item.fields or {})['System.WorkItemType']
+    if not wit_type or wit_type == '' then
+      vim.notify('Work item type unknown', vim.log.levels.ERROR)
+      return
+    end
+    local requests = require('ado.requests')
+    requests.load_states_for_wit(wit_type, function(_err, state_options)
+      if not state_options or #state_options == 0 then
+        vim.notify('No states available for this work item type', vim.log.levels.WARN)
+        return
+      end
+      vim.ui.select(state_options, {
+        prompt = 'Set State (' .. wit_type .. '):',
+      }, function(choice)
+        if not choice then return end
+        requests.update_state(item.id, choice, function(err)
+          if err then
+            vim.notify('Failed to update state: ' .. tostring(err), vim.log.levels.ERROR)
+            return
+          end
+          vim.notify('State updated to: ' .. choice, vim.log.levels.INFO)
+          require('ado.ui.detail').render()
+        end)
+      end)
+    end)
+  end, vim.tbl_extend('force', opts, { desc = 'Edit State (on State line)' }))
 end
 
 --- Open the work items layout (list + detail split)
@@ -228,6 +279,17 @@ end
 ---@return number|nil
 function M.get_detail_win()
   return layout.detail_win
+end
+
+--- Resize the list pane by delta columns
+---@param delta number Positive = wider, negative = narrower
+function M.resize_list(delta)
+  if not layout.list_win or not vim.api.nvim_win_is_valid(layout.list_win) then
+    return
+  end
+  local current_width = vim.api.nvim_win_get_width(layout.list_win)
+  local new_width = math.max(20, current_width + delta)
+  vim.api.nvim_win_set_width(layout.list_win, new_width)
 end
 
 return M

@@ -98,11 +98,26 @@ require('ado').setup({
 })
 ```
 
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `:Ado` or `:Ado help` | Show usage and environment variables |
+| `:Ado workitems` | Open work items browser (list + detail) |
+| `:Ado controls` | Show keybindings by context (game-style overlay; no auth required) |
+
 ### All Options
 
 ```lua
 require('ado').setup({
-  -- Keybindings
+  -- Enable debug logging (visible in :messages)
+  debug = false,
+
+  -- Optional: restrict scope picker to these area paths (e.g. "Project\\Team 1").
+  -- If empty, the plugin fetches "my teams" from ADO and caches them.
+  team_scopes = {},
+
+  -- Keybindings (used in list, detail, and pickers; :Ado controls shows these)
   keymaps = {
     -- Key to close the ADO browser
     close = 'q',
@@ -163,6 +178,8 @@ require('ado').setup()
 
 ### Custom Keybindings
 
+Keybindings you set in `keymaps` are used in the list pane, detail pane, and pickers (scope, project). Run **`:Ado controls`** to see the full controls overlay with your configured keys.
+
 ```lua
 require('ado').setup({
   keymaps = {
@@ -194,6 +211,12 @@ require('ado').setup({
   },
 })
 ```
+
+## Team / Area Path and Cache
+
+- **Cache location:** `stdpath('data')/ado/state.json` stores the last selected area path per (org, project) and an optional list of teams per project.
+- **team_scopes:** If you set `team_scopes` in `setup()`, the scope picker only shows those entries. Pass them inside `setup({})`, not as a key on the plugin spec (e.g. with lazy.nvim, put `team_scopes = { ... }` inside the table passed to `require('ado').setup()`).
+- If `team_scopes` is empty, the plugin uses the Teams API (`$mine=true`) to list teams you're a member of and caches the result.
 
 ## Lazy Loading
 

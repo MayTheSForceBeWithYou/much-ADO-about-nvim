@@ -18,6 +18,6 @@ end, {
   nargs = '?',
   desc = 'Open Azure DevOps browser',
   complete = function()
-    return { 'help', 'workitems' }
+    return { 'help', 'workitems', 'controls' }
   end,
 })
