@@ -55,6 +55,7 @@ local function show_help()
     '',
     'Commands:',
     '  workitems    Browse work items (list + detail view)',
+    '  controls     Show keybindings by context (game-style controls page)',
     '  help         Show this help message',
     '',
     'Environment Variables:',
@@ -63,13 +64,30 @@ local function show_help()
     '  ADO_PAT      (required) Personal Access Token',
     '  ADO_PROJECT  (optional) Default project name',
     '',
-    'Keybindings (in ADO buffers):',
+    'Keybindings (in list pane):',
     '  q            Close the ADO browser',
-    '  <CR>         Select item',
+    '  <CR>         Select item and focus detail pane',
     '  j / k        Navigate items',
     '  R            Refresh current view',
+    '  s            Change team / area path scope',
+    '  H / L        Shrink / grow list pane width',
     '',
-    'For more information, see the docs/ directory.',
+    'Keybindings (in detail pane):',
+    '  q            Close the ADO browser',
+    '  <CR> / <BS>  Return to list pane',
+    '  j / k        Scroll  |  <C-d> / <C-u>  Half-page  |  gg / G  Top / bottom',
+    '  e            Edit State (when cursor is on the State line)',
+    '  H / L        Shrink / grow list pane width',
+    '',
+    'Team / Area Path (browser-like):',
+    '  By default the plugin fetches "my teams" from ADO and remembers',
+    '  your last selected Team/Area Path (stored in data dir).',
+    '  Optional: restrict the list with team_scopes in setup():',
+    '    require("ado").setup({',
+    '      team_scopes = { "Project\\\\Team 1", "Project\\\\Team 2" },',
+    '    })',
+    '',
+    '  Run :Ado controls to view all keybindings by context.',
   }
 
   for _, line in ipairs(help_lines) do
@@ -85,9 +103,13 @@ function M.open(surface)
     surface = 'help'
   end
 
-  -- Help doesn't require environment validation
+  -- Help and controls don't require environment validation
   if surface == 'help' then
     show_help()
+    return
+  end
+  if surface == 'controls' then
+    require('ado.ui.controls').open()
     return
   end
 
@@ -120,6 +142,49 @@ end
 ---@param surface string
 function M._open_surface(surface)
   if surface == 'workitems' then
+    local cache = require('ado.cache')
+    local org_url = state.get('org_url')
+    local project = state.get('project')
+    -- Restore last selected area path from cache (browser-like: remember last Team/Area)
+    if not state.get('area_path') and org_url and project then
+      local last = cache.get_last_area_path(org_url, project)
+      if last and last ~= '' then
+        state.set('area_path', last)
+      end
+    end
+    local area_path = state.get('area_path')
+    local scopes = config.get().team_scopes or {}
+    -- If still no scope: need user to pick. Prefer config list; else use "my teams" from API (cached or fetch).
+    if not area_path then
+      if #scopes > 0 then
+        require('ado.ui.scope_picker').open(function(selected)
+          if selected then
+            if org_url and project then
+              cache.set_last_area_path(org_url, project, selected)
+            end
+            M._open_surface(surface)
+          end
+        end)
+        return
+      end
+      -- No config scopes: load teams from API (or cache), then show picker
+      require('ado.requests').load_teams({ mine = true }, function(paths)
+        if #paths > 0 then
+          require('ado.ui.scope_picker').open(function(selected)
+            if selected then
+              if org_url and project then
+                cache.set_last_area_path(org_url, project, selected)
+              end
+              M._open_surface(surface)
+            end
+          end)
+        else
+          -- No teams or API error: open work items without scope (all items)
+          require('ado.ui.layout').open_workitems()
+        end
+      end)
+      return
+    end
     require('ado.ui.layout').open_workitems()
   else
     vim.notify('Unknown command: ' .. surface .. '. Run :Ado help for usage.', vim.log.levels.WARN)

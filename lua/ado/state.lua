@@ -16,6 +16,9 @@ local M = {}
 ---@field process_id string|nil Project's process template GUID
 ---@field wit_type_refs table<string, string> Maps display name → reference name
 ---@field layouts table<string, ado.sdk.FormLayout> Maps display name → form layout
+---@field area_path string|nil Currently selected area path scope
+---@field area_mode string Area path mode (always "under" for now)
+---@field team_area_paths string[] Area paths from "my teams" API (projectName\teamName), used by scope picker when team_scopes not set
 
 ---@type AdoState
 local state = {}
@@ -34,6 +37,9 @@ function M.reset()
     process_id = nil,
     wit_type_refs = {},
     layouts = {},
+    area_path = nil,
+    area_mode = 'under',
+    team_area_paths = {},
   }
 end
 

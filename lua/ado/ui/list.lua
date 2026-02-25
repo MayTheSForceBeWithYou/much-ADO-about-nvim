@@ -9,8 +9,10 @@ local log = require('ado.log')
 local state = require('ado.state')
 local layout = require('ado.ui.layout')
 
----@type number Current cursor line (1-indexed)
+---@type number Current cursor line (1-indexed, includes header offset)
 local cursor_line = 1
+---@type number Number of header lines before work items start
+local header_offset = 0
 
 --- Format a work item for display in the list
 ---@param item table Work item data
@@ -40,10 +42,20 @@ function M.render()
   local work_items = state.get('work_items') or {}
   local lines = {}
 
+  -- Scope header
+  local area_path = state.get('area_path')
+  if area_path then
+    table.insert(lines, string.format('Scope: %s (UNDER) | Limit: 200', area_path))
+    table.insert(lines, string.rep('-', 40))
+  end
+  header_offset = #lines
+
   if state.is_loading() then
-    lines = { 'Loading...' }
+    table.insert(lines, 'Loading...')
   elseif #work_items == 0 then
-    lines = { 'No work items found', '', 'Press R to refresh' }
+    table.insert(lines, 'No work items found')
+    table.insert(lines, '')
+    table.insert(lines, 'Press R to refresh')
   else
     for _, item in ipairs(work_items) do
       table.insert(lines, format_item(item))
@@ -55,10 +67,10 @@ function M.render()
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modifiable = false
 
-  -- Restore cursor position
+  -- Restore cursor position (ensure it's on a work item line, not header)
   local win = layout.get_list_win()
   if win and vim.api.nvim_win_is_valid(win) then
-    local line = math.min(cursor_line, #lines)
+    local line = math.max(header_offset + 1, math.min(cursor_line, #lines))
     vim.api.nvim_win_set_cursor(win, { math.max(1, line), 0 })
   end
 end
@@ -91,6 +103,27 @@ function M.setup_keymaps(buf)
   vim.keymap.set('n', keymaps.prev_item, function()
     M.move_cursor(-1)
   end, vim.tbl_extend('force', opts, { desc = 'Previous item' }))
+
+  vim.keymap.set('n', 's', function()
+    local cfg = config.get()
+    local scopes = cfg.team_scopes or {}
+    -- If no config scopes, ensure "my teams" are loaded (from cache or API) before opening picker
+    if #scopes == 0 then
+      require('ado.requests').load_teams({ mine = true }, function()
+        require('ado.ui.scope_picker').open(function(selected)
+          if selected then
+            require('ado').refresh()
+          end
+        end)
+      end)
+    else
+      require('ado.ui.scope_picker').open(function(selected)
+        if selected then
+          require('ado').refresh()
+        end
+      end)
+    end
+  end, vim.tbl_extend('force', opts, { desc = 'Change scope' }))
 end
 
 --- Move the cursor by delta lines
@@ -100,7 +133,9 @@ function M.move_cursor(delta)
   if #work_items == 0 then return end
 
   cursor_line = cursor_line + delta
-  cursor_line = math.max(1, math.min(cursor_line, #work_items))
+  local first_item = header_offset + 1
+  local last_item = header_offset + #work_items
+  cursor_line = math.max(first_item, math.min(cursor_line, last_item))
 
   local win = layout.get_list_win()
   if win and vim.api.nvim_win_is_valid(win) then
@@ -119,9 +154,11 @@ function M.select_current()
     return
   end
 
-  local item = work_items[cursor_line]
+  local item_index = cursor_line - header_offset
+  local item = work_items[item_index]
   if not item then
-    log.debug('select_current: no item at cursor_line %d (have %d items)', cursor_line, #work_items)
+    log.debug('select_current: no item at index %d (cursor_line %d, offset %d, have %d items)',
+      item_index, cursor_line, header_offset, #work_items)
     return
   end
 
@@ -168,6 +205,7 @@ end
 --- Reset cursor position
 function M.reset_cursor()
   cursor_line = 1
+  header_offset = 0
 end
 
 return M

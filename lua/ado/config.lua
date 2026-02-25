@@ -5,6 +5,7 @@ local M = {}
 
 ---@class AdoConfig
 ---@field debug boolean Enable debug logging (visible in :messages)
+---@field team_scopes string[] Allowed area path scopes (e.g. {"CodeyStuff\\Team 1", "CodeyStuff\\Team 2"})
 ---@field keymaps AdoKeymaps
 ---@field ui AdoUiConfig
 
@@ -16,12 +17,14 @@ local M = {}
 ---@field prev_item string Key to move to previous item
 
 ---@class AdoUiConfig
----@field list_width number Width of the list pane (percentage or absolute)
+---@field list_width number Width of the list pane in columns
+---@field list_width_step number Columns to resize per keypress
 ---@field border string Border style for floating windows
 
 ---@type AdoConfig
 local defaults = {
   debug = true,
+  team_scopes = {},
   keymaps = {
     close = 'q',
     select = '<CR>',
@@ -30,7 +33,8 @@ local defaults = {
     prev_item = 'k',
   },
   ui = {
-    list_width = 40,
+    list_width = 60,
+    list_width_step = 5,
     border = 'rounded',
   },
 }
