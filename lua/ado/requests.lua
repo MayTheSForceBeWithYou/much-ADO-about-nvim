@@ -269,6 +269,8 @@ function M.load_work_items(callback)
     function(work_items)
       log.debug('load_work_items: loaded %d work items', #work_items)
       state.set('work_items', work_items)
+      -- Background: preload team members for assignee picker
+      M.load_team_members()
       if callback then callback(work_items) end
     end
   )
@@ -486,6 +488,128 @@ function M.ensure_layout(wit_type, callback)
     -- Silent error handler: layout is a background enhancement, not user-initiated
     function(err)
       log.debug('ensure_layout: failed for "%s": %s', wit_type, tostring(err))
+    end
+  )
+end
+
+--- Load team members for the current project's teams (background preload for assignee picker)
+--- Fetches members of each cached team, deduplicates, and stores in state.team_members
+---@param callback function|nil Called with team_members array when done
+function M.load_team_members(callback)
+  local project = state.get('project')
+  local org_url = state.get('org_url')
+  if not project or not org_url then
+    if callback then callback({}) end
+    return
+  end
+
+  -- Get team list from cache
+  local cache = require('ado.cache')
+  local cached_teams = cache.get_teams_cache(org_url, project) or {}
+  if #cached_teams == 0 then
+    log.debug('load_team_members: no cached teams, skipping')
+    if callback then callback({}) end
+    return
+  end
+
+  local conn = get_connection()
+  local core = conn:get_core_api()
+  local pending = #cached_teams
+  local all_members = {}
+  local seen = {}
+
+  for _, team in ipairs(cached_teams) do
+    local team_id = team.id or team.name
+    if not team_id then
+      pending = pending - 1
+      if pending == 0 then
+        state.set('team_members', all_members)
+        log.debug('load_team_members: loaded %d unique members', #all_members)
+        if callback then callback(all_members) end
+      end
+    else
+      core:get_team_members(project, team_id, function(err, members)
+        if not err and members then
+          for _, m in ipairs(members) do
+            local key = m.uniqueName or m.displayName
+            if key and not seen[key] then
+              seen[key] = true
+              table.insert(all_members, m)
+            end
+          end
+        else
+          log.debug('load_team_members: error for team %s: %s', team_id, err and err.message or 'unknown')
+        end
+        pending = pending - 1
+        if pending == 0 then
+          state.set('team_members', all_members)
+          log.debug('load_team_members: loaded %d unique members', #all_members)
+          if callback then callback(all_members) end
+        end
+      end)
+    end
+  end
+end
+
+--- Search identities org-wide via vssps API (for assignee typeahead)
+---@param query string Search prefix
+---@param callback fun(err: string|nil, identities: ado.sdk.Identity[]|nil)
+function M.search_identities(query, callback)
+  if not query or query == '' then
+    if callback then callback(nil, {}) end
+    return
+  end
+  local conn = get_connection()
+  conn:get_identity_api():search(query, function(err, identities)
+    if err then
+      log.debug('search_identities: error: %s', err.message or tostring(err))
+      if callback then callback(err.message, nil) end
+      return
+    end
+    if callback then callback(nil, identities or {}) end
+  end)
+end
+
+--- Update a work item's assignee via JSON Patch
+---@param id number Work item ID
+---@param email string Assignee email/UPN (empty string to clear)
+---@param callback function|nil Called with (err) — nil on success
+function M.update_assignee(id, email, callback)
+  local project = state.get('project')
+  if not project then
+    local err = 'No project selected'
+    if callback then callback(err) else vim.notify(err, vim.log.levels.ERROR) end
+    return
+  end
+  if not id then
+    local err = 'Work item ID is required'
+    if callback then callback(err) else vim.notify(err, vim.log.levels.ERROR) end
+    return
+  end
+
+  local patch = {
+    { op = 'add', path = '/fields/System.AssignedTo', value = email or '' },
+  }
+  log.debug('update_assignee: PATCH work item #%d assignee=%s', id, email or '(clear)')
+  M.execute(
+    function(cb)
+      get_connection():get_work_item_tracking_api():update_work_item(id, project, patch, function(err, updated)
+        if err then
+          cb(err.message, nil)
+          return
+        end
+        cb(nil, updated)
+      end)
+    end,
+    function(updated)
+      local item = state.get('selected_work_item')
+      if item and item.id == id and item.fields then
+        item.fields['System.AssignedTo'] = updated.fields and updated.fields['System.AssignedTo']
+      end
+      if callback then callback(nil) end
+    end,
+    function(err)
+      if callback then callback(err or 'Update failed') else vim.notify('Failed to update assignee: ' .. tostring(err), vim.log.levels.ERROR) end
     end
   )
 end

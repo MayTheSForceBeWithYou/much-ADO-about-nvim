@@ -55,6 +55,7 @@ local function get_controls_data()
         { key = 'gg', action = 'Go to top' },
         { key = 'G', action = 'Go to bottom' },
         { key = 'e', action = 'Edit State (when cursor is on the State line)' },
+        { key = 'a', action = 'Edit Assignee (when cursor is on Assigned To line)' },
         { key = 'H', action = 'Shrink list pane width' },
         { key = 'L', action = 'Grow list pane width' },
       },
@@ -68,6 +69,17 @@ local function get_controls_data()
         { key = '<prev>', action = 'Previous scope' },
         { key = 'j', action = 'Next scope' },
         { key = 'k', action = 'Previous scope' },
+      },
+    },
+    {
+      context = 'Assignee Picker',
+      bindings = {
+        { key = 'j', action = 'Next item' },
+        { key = 'k', action = 'Previous item' },
+        { key = '<select>', action = 'Assign selected user' },
+        { key = '<close>', action = 'Cancel' },
+        { key = '<BS>', action = 'Backspace (delete search character)' },
+        { key = 'A-Z/a-z', action = 'Type to search (immediate typeahead)' },
       },
     },
     {

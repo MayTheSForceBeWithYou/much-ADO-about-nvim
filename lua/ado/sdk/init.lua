@@ -9,6 +9,7 @@ local auth = require('ado.sdk.auth')
 ---@field private _rest ado.sdk.RestClient
 ---@field private _core_api ado.sdk.CoreApi|nil Lazily created
 ---@field private _wit_api ado.sdk.WorkItemTrackingApi|nil Lazily created
+---@field private _identity_api ado.sdk.IdentityApi|nil Lazily created
 local Connection = {}
 Connection.__index = Connection
 
@@ -22,6 +23,7 @@ function Connection.new(org_url, auth_handler, opts)
   self._rest = RestClient.new(org_url, auth_handler, opts)
   self._core_api = nil
   self._wit_api = nil
+  self._identity_api = nil
   return self
 end
 
@@ -43,6 +45,16 @@ function Connection:get_work_item_tracking_api()
     self._wit_api = require('ado.sdk.api.work_item_tracking_api').new(self._rest)
   end
   return self._wit_api
+end
+
+--- Get the Identity API client (identity search via vssps)
+--- Lazily creates the client on first call
+---@return ado.sdk.IdentityApi
+function Connection:get_identity_api()
+  if not self._identity_api then
+    self._identity_api = require('ado.sdk.api.identity_api').new(self._rest)
+  end
+  return self._identity_api
 end
 
 --- Get the underlying REST client (for advanced/custom requests)
