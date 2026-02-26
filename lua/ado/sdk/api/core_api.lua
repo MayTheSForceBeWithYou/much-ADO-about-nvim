@@ -75,4 +75,40 @@ function CoreApi:get_teams(project_id, opts, callback)
   end)
 end
 
+--- Get members of a team
+---@param project_id string Project name or GUID
+---@param team_id string Team name or GUID
+---@param callback fun(err: ado.sdk.ApiError|nil, members: ado.sdk.TeamMember[]|nil)
+function CoreApi:get_team_members(project_id, team_id, callback)
+  if not project_id or project_id == '' then
+    callback(errors.validation('project_id is required'), nil)
+    return
+  end
+  if not team_id or team_id == '' then
+    callback(errors.validation('team_id is required'), nil)
+    return
+  end
+  local endpoint = 'projects/' .. project_id .. '/teams/' .. team_id .. '/members'
+  self.rest:get(endpoint, nil, nil, function(err, response)
+    if err then
+      callback(err, nil)
+      return
+    end
+    -- Response shape: { value: [{ identity: { displayName, uniqueName, id, imageUrl } }] }
+    local raw_members = self:extract_collection(response)
+    local members = {}
+    for _, m in ipairs(raw_members) do
+      if m.identity then
+        table.insert(members, {
+          displayName = m.identity.displayName,
+          uniqueName = m.identity.uniqueName,
+          id = m.identity.id,
+          imageUrl = m.identity.imageUrl,
+        })
+      end
+    end
+    callback(nil, members)
+  end)
+end
+
 return CoreApi

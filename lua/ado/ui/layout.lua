@@ -170,6 +170,35 @@ local function setup_detail_keymaps(buf)
       end)
     end)
   end, vim.tbl_extend('force', opts, { desc = 'Edit State (on State line)' }))
+
+  -- Edit Assignee: only when cursor is on the "Assigned To:" line
+  vim.keymap.set('n', 'a', function()
+    local state_module = require('ado.state')
+    local item = state_module.get('selected_work_item')
+    if not item or not item.id then
+      vim.notify('No work item selected', vim.log.levels.ERROR)
+      return
+    end
+    local row = vim.api.nvim_win_get_cursor(0)[1]
+    local lines = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)
+    local line_content = (lines and lines[1]) or ''
+    if not line_content:match('^Assigned To:') then
+      vim.notify("Press 'a' on the Assigned To line to edit", vim.log.levels.INFO)
+      return
+    end
+    require('ado.ui.assignee_picker').open(item, function(result)
+      if result == nil then return end  -- cancelled
+      local email = type(result) == 'table' and result.email or result
+      require('ado.requests').update_assignee(item.id, email, function(err)
+        if err then
+          vim.notify('Failed to update assignee: ' .. tostring(err), vim.log.levels.ERROR)
+          return
+        end
+        vim.notify('Assignee updated', vim.log.levels.INFO)
+        require('ado.ui.detail').render()
+      end)
+    end)
+  end, vim.tbl_extend('force', opts, { desc = 'Edit Assignee (on Assigned To line)' }))
 end
 
 --- Open the work items layout (list + detail split)

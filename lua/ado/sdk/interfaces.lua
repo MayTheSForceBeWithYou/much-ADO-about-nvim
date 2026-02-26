@@ -80,6 +80,17 @@
 ---@field pages ado.sdk.FormPage[]
 ---@field systemControls ado.sdk.FormControl[]
 
+---@class ado.sdk.TeamMember
+---@field displayName string Display name (e.g. "Alice Smith")
+---@field uniqueName string Email / UPN (e.g. "alice@org.com")
+---@field id string Identity GUID
+---@field imageUrl string|nil Avatar URL
+
+---@class ado.sdk.Identity
+---@field displayName string Provider display name
+---@field email string|nil Email address (from properties)
+---@field id string|nil Identity GUID
+
 ---@alias ado.sdk.Callback fun(err: ado.sdk.ApiError|nil, result: any)
 
 return {}

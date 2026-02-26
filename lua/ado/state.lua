@@ -19,6 +19,7 @@ local M = {}
 ---@field area_path string|nil Currently selected area path scope
 ---@field area_mode string Area path mode (always "under" for now)
 ---@field team_area_paths string[] Area paths from "my teams" API (projectName\teamName), used by scope picker when team_scopes not set
+---@field team_members ado.sdk.TeamMember[] Preloaded team members for assignee picker
 
 ---@type AdoState
 local state = {}
@@ -40,6 +41,7 @@ function M.reset()
     area_path = nil,
     area_mode = 'under',
     team_area_paths = {},
+    team_members = {},
   }
 end
 
