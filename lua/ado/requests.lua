@@ -53,19 +53,26 @@ function M.execute(request_fn, on_success, on_error)
   end)
 end
 
---- Fetch and load projects into state
+--- Fetch and load projects into state (uses ADO Lua SDK via ado_client)
 ---@param callback function|nil Called after projects are loaded
 function M.load_projects(callback)
-  log.debug('load_projects: fetching')
+  log.debug('load_projects: fetching via ADO Lua SDK')
+  local ado_client, cerr = require('ado.ado_client').get()
+  if not ado_client then
+    vim.notify('ADO SDK unavailable: ' .. tostring(cerr), vim.log.levels.ERROR)
+    return
+  end
   M.execute(
     function(cb)
-      get_connection():get_core_api():get_projects(function(err, projects)
-        if err then
-          cb(err.message, nil)
-          return
-        end
-        cb(nil, projects)
-      end)
+      ado_client.projects:list({}, {
+        callback = function(res, err)
+          if err then
+            cb(err.message, nil)
+            return
+          end
+          cb(nil, res.data and res.data.value or {})
+        end,
+      })
     end,
     function(projects)
       log.debug('load_projects: received %d projects', #projects)
