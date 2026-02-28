@@ -10,6 +10,7 @@ local auth = require('ado.sdk.auth')
 ---@field private _core_api ado.sdk.CoreApi|nil Lazily created
 ---@field private _wit_api ado.sdk.WorkItemTrackingApi|nil Lazily created
 ---@field private _identity_api ado.sdk.IdentityApi|nil Lazily created
+---@field private _pipelines_api ado.sdk.PipelinesApi|nil Lazily created
 local Connection = {}
 Connection.__index = Connection
 
@@ -24,6 +25,7 @@ function Connection.new(org_url, auth_handler, opts)
   self._core_api = nil
   self._wit_api = nil
   self._identity_api = nil
+  self._pipelines_api = nil
   return self
 end
 
@@ -55,6 +57,16 @@ function Connection:get_identity_api()
     self._identity_api = require('ado.sdk.api.identity_api').new(self._rest)
   end
   return self._identity_api
+end
+
+--- Get the Pipelines API client (pipelines, runs)
+--- Lazily creates the client on first call
+---@return ado.sdk.PipelinesApi
+function Connection:get_pipelines_api()
+  if not self._pipelines_api then
+    self._pipelines_api = require('ado.sdk.api.pipelines_api').new(self._rest)
+  end
+  return self._pipelines_api
 end
 
 --- Get the underlying REST client (for advanced/custom requests)
