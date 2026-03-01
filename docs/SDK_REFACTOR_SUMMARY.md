@@ -30,7 +30,7 @@ much-ADO-about-nvim/
 
 ## New: ADO_Lua_SDK Package
 
-Location: `/Users/nate/dev/Azure/ADO_Lua_SDK` (sibling to plugin) or `ADO_SDK_PATH`.
+Location: `../ADO_Lua_SDK` (sibling to this plugin) or `$ADO_SDK_PATH`.
 
 ```
 ADO_Lua_SDK/
