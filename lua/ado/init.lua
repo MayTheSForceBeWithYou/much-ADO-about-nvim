@@ -55,6 +55,7 @@ local function show_help()
     '',
     'Commands:',
     '  workitems    Browse work items (list + detail view)',
+    '  pipelines    Browse pipelines (list → runs → run detail)',
     '  controls     Show keybindings by context (game-style controls page)',
     '  help         Show this help message',
     '',
@@ -186,6 +187,8 @@ function M._open_surface(surface)
       return
     end
     require('ado.ui.layout').open_workitems()
+  elseif surface == 'pipelines' then
+    require('ado.ui.pipelines_list').open()
   else
     vim.notify('Unknown command: ' .. surface .. '. Run :Ado help for usage.', vim.log.levels.WARN)
   end
