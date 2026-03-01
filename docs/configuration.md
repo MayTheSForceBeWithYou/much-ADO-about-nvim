@@ -40,6 +40,14 @@ Default project to use. If not set, a project picker is displayed on launch.
 export ADO_PROJECT="MyProject"
 ```
 
+#### `ADO_SDK_PATH`
+
+Path to the ADO_Lua_SDK package (local dependency). If not set, the plugin looks for a sibling `ADO_Lua_SDK` directory relative to the plugin root. Set this when the SDK is installed elsewhere.
+
+```bash
+export ADO_SDK_PATH="/path/to/ADO_Lua_SDK"
+```
+
 ## Security Notes for PAT Usage
 
 Your Personal Access Token is sensitive. Follow these best practices:
@@ -224,15 +232,23 @@ To lazy-load much-ADO-about-nvim, configure your plugin manager to load on comma
 
 ### lazy.nvim
 
+The plugin depends on **ADO_Lua_SDK** as a local dependency. Add it to your spec:
+
 ```lua
 {
   'MayTheSForceBeWithYou/much-ADO-about-nvim',
   cmd = 'Ado',
+  dependencies = {
+    -- Local SDK (adjust path to your ADO_Lua_SDK location)
+    { dir = '~/dev/Azure/ADO_Lua_SDK', lazy = true },
+  },
   config = function()
     require('ado').setup()
   end,
 }
 ```
+
+Or set `ADO_SDK_PATH` in your environment so the plugin finds the SDK automatically.
 
 ### packer.nvim
 

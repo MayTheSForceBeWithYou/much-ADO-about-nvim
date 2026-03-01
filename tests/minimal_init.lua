@@ -14,5 +14,14 @@ end
 -- Add the plugin itself to runtimepath
 vim.opt.runtimepath:append('.')
 
+-- Add ADO_Lua_SDK to runtimepath (local dependency for tests)
+local sdk_path = vim.env.ADO_SDK_PATH
+if not sdk_path or sdk_path == '' then
+  sdk_path = vim.fn.fnamemodify(vim.fn.getcwd() .. '/../ADO_Lua_SDK', ':p')
+end
+if vim.fn.isdirectory(sdk_path) == 1 then
+  vim.opt.runtimepath:prepend(sdk_path)
+end
+
 -- Load plenary
 vim.cmd('runtime plugin/plenary.vim')
