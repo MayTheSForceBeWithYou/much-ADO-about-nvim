@@ -15,7 +15,17 @@ local function ensure_sdk_on_rtp()
     sdk_path = vim.fn.fnamemodify(plugin_root .. '/../ADO_Lua_SDK', ':p')
   end
   if vim.fn.isdirectory(sdk_path) == 1 then
-    vim.opt.rtp:prepend(sdk_path)
+    local rtp_entries = vim.opt.rtp:get()
+    local already_present = false
+    for _, entry in ipairs(rtp_entries) do
+      if vim.fn.fnamemodify(entry, ':p') == sdk_path then
+        already_present = true
+        break
+      end
+    end
+    if not already_present then
+      vim.opt.rtp:prepend(sdk_path)
+    end
   end
 end
 ensure_sdk_on_rtp()
