@@ -10,7 +10,14 @@ local M = {}
 ---@param opts table|nil Optional: { log = log_module } for debug output
 ---@return ado.sdk.Connection
 function M.create_connection(org_url, pat, opts)
-  local sdk = require('ado.sdk')
+  local ok, sdk = pcall(require, 'ado.sdk')
+  if not ok then
+    error(
+      "Failed to load 'ado.sdk'. Make sure ADO_Lua_SDK is installed and on your runtimepath, " ..
+      "or set ADO_SDK_PATH so that 'ado.sdk' can be required.",
+      0
+    )
+  end
   opts = opts or {}
   local sdk_opts = {
     log = opts.log,
