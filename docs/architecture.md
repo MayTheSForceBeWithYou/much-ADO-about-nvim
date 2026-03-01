@@ -197,9 +197,9 @@ To add a new ADO surface (e.g., Pull Requests):
 
 1. Add a new SDK API client in **ADO_Lua_SDK** (e.g. `api/git_api.lua`) and expose it via Connection
 2. Create `lua/ado/ui/pr_list.lua` and `lua/ado/ui/pr_detail.lua`
-4. Add request orchestrators in `requests.lua`
-5. Add state fields in `state.lua`
-6. Add routing in `init.lua._open_surface()`
-7. Add layout support in `layout.lua`
+3. Add request orchestrators in `requests.lua`
+4. Add state fields in `state.lua`
+5. Add routing in `init.lua._open_surface()`
+6. Add layout support in `layout.lua`
 
 See [Development Guide](development.md) for detailed instructions.
