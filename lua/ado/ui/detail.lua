@@ -228,29 +228,41 @@ function M.render()
   end
 
   local item = state.get('selected_work_item')
-  local lines
+  local lines = {}
+
+  -- Tab bar (always shown so the user knows History is one <Tab> away)
+  local history = require('ado.ui.history')
+  for _, l in ipairs(history.tab_bar('details')) do
+    table.insert(lines, l)
+  end
 
   if not item then
     log.debug('detail.render: no selected work item')
-    lines = { 'No work item selected', '', 'Select an item from the list' }
+    table.insert(lines, 'No work item selected')
+    table.insert(lines, '')
+    table.insert(lines, 'Select an item from the list')
   else
     -- Check for cached layout
     local wit_type = (item.fields or {})['System.WorkItemType']
     local layouts = state.get('layouts') or {}
     local form_layout = wit_type and layouts[wit_type]
 
+    local body_lines
     if form_layout then
       log.debug('detail.render: using layout for #%d (type "%s")', item.id or 0, wit_type or '?')
-      lines = render_with_layout(item, form_layout)
+      body_lines = render_with_layout(item, form_layout)
     else
       log.debug('detail.render: fallback for #%d (type=%s, loading=%s)',
         item.id or 0, vim.inspect(wit_type), tostring(state.is_loading()))
-      lines = render_fallback(item)
+      body_lines = render_fallback(item)
       -- Show loading hint if layout is being fetched
       if wit_type and not form_layout and state.is_loading() then
-        table.insert(lines, '')
-        table.insert(lines, 'Loading layout...')
+        table.insert(body_lines, '')
+        table.insert(body_lines, 'Loading layout...')
       end
+    end
+    for _, l in ipairs(body_lines) do
+      table.insert(lines, l)
     end
   end
 

@@ -558,6 +558,55 @@ function M.load_team_members(callback)
   end
 end
 
+--- Fetch work item update history lazily (cache on first load).
+-- Uses ADO_Lua_SDK work_items:get_updates — no raw HTTP in the plugin.
+-- The result is cached in state.history_cache[work_item_id] so subsequent
+-- calls to the same item are instant.
+---@param work_item_id number Work item ID
+---@param callback fun(err: string|nil, updates: table[]|nil)
+function M.load_history(work_item_id, callback)
+  local project = state.get('project')
+  if not project then
+    if callback then callback('No project selected', nil) end
+    return
+  end
+
+  -- Serve from cache when available
+  local history_cache = state.get('history_cache') or {}
+  if history_cache[work_item_id] then
+    log.debug('load_history: cache hit for #%d', work_item_id)
+    if callback then callback(nil, history_cache[work_item_id]) end
+    return
+  end
+
+  local ado_client, cerr = require('ado.ado_client').get()
+  if not ado_client then
+    local msg = 'ADO SDK unavailable: ' .. tostring(cerr)
+    log.debug('load_history: %s', msg)
+    if callback then callback(msg, nil) end
+    return
+  end
+
+  log.debug('load_history: fetching updates for #%d project=%s', work_item_id, project)
+  ado_client.work_items:get_updates(work_item_id, { project = project }, {
+    callback = function(res, err)
+      if err then
+        local msg = err.message or tostring(err)
+        log.debug('load_history: error for #%d: %s', work_item_id, msg)
+        if callback then callback(msg, nil) end
+        return
+      end
+      local updates = (res and res.data and res.data.value) or {}
+      log.debug('load_history: got %d updates for #%d', #updates, work_item_id)
+      -- Cache by work item ID (persists across tab switches for this session)
+      local hc = state.get('history_cache') or {}
+      hc[work_item_id] = updates
+      state.set('history_cache', hc)
+      if callback then callback(nil, updates) end
+    end,
+  })
+end
+
 --- Search identities org-wide via vssps API (for assignee typeahead)
 ---@param query string Search prefix
 ---@param callback fun(err: string|nil, identities: ado.sdk.Identity[]|nil)

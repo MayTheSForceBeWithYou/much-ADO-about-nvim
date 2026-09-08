@@ -80,6 +80,7 @@ local function show_help()
     '  <CR> / <BS>  Return to list pane',
     '  j / k        Scroll  |  <C-d> / <C-u>  Half-page  |  gg / G  Top / bottom',
     '  e            Edit State (when cursor is on the State line)',
+    '  <Tab>        Switch between Details and History tabs',
     '  H / L        Shrink / grow list pane width',
     '',
     'Team / Area Path (browser-like):',
