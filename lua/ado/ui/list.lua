@@ -169,6 +169,8 @@ function M.select_current()
     vim.inspect(fields['System.WorkItemType']),
     vim.tbl_count(fields))
   state.set('selected_work_item', item)
+  -- Reset to Details tab whenever the user navigates to a new item
+  state.set('detail_tab', 'details')
   require('ado.ui.detail').render()
 
   -- Fetch layout if not cached, re-render when available

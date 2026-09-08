@@ -56,6 +56,7 @@ local function get_controls_data()
         { key = 'G', action = 'Go to bottom' },
         { key = 'e', action = 'Edit State (when cursor is on the State line)' },
         { key = 'a', action = 'Edit Assignee (when cursor is on Assigned To line)' },
+        { key = '<Tab>', action = 'Switch between Details and History tabs' },
         { key = 'H', action = 'Shrink list pane width' },
         { key = 'L', action = 'Grow list pane width' },
       },

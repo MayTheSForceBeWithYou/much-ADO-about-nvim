@@ -20,6 +20,8 @@ local M = {}
 ---@field area_mode string Area path mode (always "under" for now)
 ---@field team_area_paths string[] Area paths from "my teams" API (projectName\teamName), used by scope picker when team_scopes not set
 ---@field team_members ado.sdk.TeamMember[] Preloaded team members for assignee picker
+---@field detail_tab string Active tab in the detail pane: 'details' or 'history'
+---@field history_cache table<number, table[]> Lazily-fetched updates arrays keyed by work item ID
 
 ---@type AdoState
 local state = {}
@@ -42,6 +44,8 @@ function M.reset()
     area_mode = 'under',
     team_area_paths = {},
     team_members = {},
+    detail_tab = 'details',
+    history_cache = {},
   }
 end
 

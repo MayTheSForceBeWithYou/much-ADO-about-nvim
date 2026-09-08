@@ -171,6 +171,37 @@ local function setup_detail_keymaps(buf)
     end)
   end, vim.tbl_extend('force', opts, { desc = 'Edit State (on State line)' }))
 
+  -- Switch between Details and History tabs
+  vim.keymap.set('n', '<Tab>', function()
+    local state_mod = require('ado.state')
+    local current_tab = state_mod.get('detail_tab') or 'details'
+    local history_mod = require('ado.ui.history')
+
+    if current_tab == 'details' then
+      -- Switch to History: render loading placeholder, then fetch lazily
+      state_mod.set('detail_tab', 'history')
+      local item = state_mod.get('selected_work_item')
+      if not item then return end
+
+      -- Show loading state immediately
+      history_mod.render(buf, nil, nil)
+
+      -- Fetch updates (cached after first load)
+      require('ado.requests').load_history(item.id, function(err, updates)
+        -- Guard: only update if still on history tab for this item
+        local still_selected = state_mod.get('selected_work_item')
+        if state_mod.get('detail_tab') == 'history'
+            and still_selected and still_selected.id == item.id then
+          history_mod.render(buf, updates, err)
+        end
+      end)
+    else
+      -- Switch back to Details
+      state_mod.set('detail_tab', 'details')
+      require('ado.ui.detail').render()
+    end
+  end, vim.tbl_extend('force', opts, { desc = 'Switch History / Details tab' }))
+
   -- Edit Assignee: only when cursor is on the "Assigned To:" line
   vim.keymap.set('n', 'a', function()
     local state_module = require('ado.state')
