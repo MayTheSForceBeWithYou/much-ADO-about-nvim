@@ -8,35 +8,31 @@ This document describes the high-level architecture of much-ADO-about-nvim.
 2. **Centralized State**: All shared data flows through the state module.
 3. **Async Safety**: One request at a time, with stale response gating.
 4. **In-Memory Only**: No disk persistence; state resets on plugin reload.
-5. **SDK Independence**: The SDK (`lua/ado/sdk/`) has zero dependency on plugin state, config, or UI.
+5. **SDK Independence**: Azure DevOps REST logic lives in **ADO_Lua_SDK** (external dependency). Plugin acts as thin orchestration + UI.
 
 ## Module Overview
 
 ```
-lua/ado/
-├── init.lua          # Plugin entry point, coordinates modules
-├── config.lua        # Configuration management
-├── state.lua         # Centralized state store
-├── requests.lua      # Async orchestration layer (stale gating)
-├── sdk/              # Azure DevOps REST SDK (self-contained)
-│   ├── init.lua          # Connection factory (WebApi equivalent)
-│   ├── interfaces.lua    # LuaCATS type annotations
-│   ├── auth/
-│   │   ├── init.lua          # Auth module re-exports
-│   │   └── pat_handler.lua   # PAT auth handler
-│   ├── http/
-│   │   ├── rest_client.lua   # HTTP transport (curl + vim.system)
-│   │   └── errors.lua        # Normalized error types
-│   └── api/
-│       ├── client_base.lua       # Base class for domain clients
-│       ├── core_api.lua          # CoreApi: projects
-│       └── work_item_tracking_api.lua  # WorkItemTrackingApi: WIQL, work items
-└── ui/
-    ├── layout.lua        # Window/split management
-    ├── list.lua          # List pane rendering
-    ├── detail.lua        # Detail pane rendering
-    └── project_picker.lua # Project selection UI
+much-ADO-about-nvim/
+├── lua/ado/
+│   ├── init.lua          # Plugin entry point, coordinates modules
+│   ├── ado_client.lua    # Centralized SDK connection creation (org, PAT, opts)
+│   ├── config.lua        # Configuration management
+│   ├── state.lua         # Centralized state store
+│   ├── requests.lua      # Async orchestration layer (stale gating)
+│   └── ui/
+│       # ... (layout, list, detail, pickers, etc.)
+│
+ADO_Lua_SDK/              # External dependency (local path or ADO_SDK_PATH)
+└── lua/ado/sdk/
+    ├── init.lua          # Connection factory (WebApi equivalent)
+    ├── interfaces.lua    # LuaCATS type annotations
+    ├── auth/             # PAT handler
+    ├── http/             # RestClient (curl + vim.system), errors
+    └── api/              # CoreApi, WorkItemTrackingApi, IdentityApi, PipelinesApi
 ```
+
+**ADO_Lua_SDK** provides all Azure DevOps REST interaction. The plugin never calls HTTP directly.
 
 ### Module Responsibilities
 
@@ -65,27 +61,17 @@ lua/ado/
 - Updates state after successful responses
 - Provides high-level operations: `load_projects()`, `load_work_items()`
 
-#### `sdk/` (Azure DevOps REST SDK)
+#### `ado_client.lua` (SDK initialization)
 
-The SDK is modeled after Microsoft's [azure-devops-node-api](https://github.com/microsoft/azure-devops-node-api). It is completely self-contained with no dependency on plugin modules.
+Centralizes creation of the Azure DevOps connection. All org URL, PAT, and SDK options flow through here. Uses the external **ADO_Lua_SDK** package.
 
-**Usage:**
 ```lua
-local sdk = require('ado.sdk')
-local conn = sdk.new('https://dev.azure.com/myorg', sdk.auth.pat(pat))
-
-conn:get_core_api():get_projects(function(err, projects) end)
-conn:get_work_item_tracking_api():query_by_wiql(wiql, project, function(err, refs) end)
-conn:get_work_item_tracking_api():get_work_items(ids, project, function(err, items) end)
+local conn = ado_client.create_connection(org_url, pat, { log = require('ado.log') })
 ```
 
-- **`sdk/init.lua`** - Connection factory. Lazy sub-client creation via `get_core_api()`, `get_work_item_tracking_api()`.
-- **`sdk/auth/`** - Pluggable auth handlers. PAT implemented; Bearer/NTLM extensible.
-- **`sdk/http/rest_client.lua`** - HTTP transport via `curl` + `vim.system()`. URL building, query encoding, JSON parsing. Auto-injects `api-version`.
-- **`sdk/http/errors.lua`** - Normalized `ApiError` tables with `message`, `status_code`, `type`, `raw` fields.
-- **`sdk/api/client_base.lua`** - Base class providing `rest` reference and `extract_collection()` helper.
-- **`sdk/api/core_api.lua`** - `get_projects()`, `get_project()`.
-- **`sdk/api/work_item_tracking_api.lua`** - `query_by_wiql()`, `get_work_items()`, `get_work_item()`.
+#### ADO_Lua_SDK (External dependency)
+
+The SDK is a standalone package at `../ADO_Lua_SDK` (or `ADO_SDK_PATH`). It is modeled after [azure-devops-node-api](https://github.com/microsoft/azure-devops-node-api) and has zero dependency on the plugin. Provides: Connection factory, PAT auth, RestClient (curl + vim.system), CoreApi, WorkItemTrackingApi, IdentityApi, PipelinesApi.
 
 #### `ui/layout.lua`
 - Creates and manages the split layout
@@ -209,12 +195,11 @@ end)
 
 To add a new ADO surface (e.g., Pull Requests):
 
-1. Add a new SDK API client: `lua/ado/sdk/api/git_api.lua`
-2. Add `get_git_api()` factory method to `sdk/init.lua` Connection
-3. Create `lua/ado/ui/pr_list.lua` and `lua/ado/ui/pr_detail.lua`
-4. Add request orchestrators in `requests.lua`
-5. Add state fields in `state.lua`
-6. Add routing in `init.lua._open_surface()`
-7. Add layout support in `layout.lua`
+1. Add a new SDK API client in **ADO_Lua_SDK** (e.g. `api/git_api.lua`) and expose it via Connection
+2. Create `lua/ado/ui/pr_list.lua` and `lua/ado/ui/pr_detail.lua`
+3. Add request orchestrators in `requests.lua`
+4. Add state fields in `state.lua`
+5. Add routing in `init.lua._open_surface()`
+6. Add layout support in `layout.lua`
 
 See [Development Guide](development.md) for detailed instructions.
