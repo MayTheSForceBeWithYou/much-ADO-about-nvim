@@ -41,9 +41,11 @@ local function initialize()
   state.set('org_url', vim.env.ADO_ORG_URL)
   state.set('project', vim.env.ADO_PROJECT or nil)
 
-  -- Create SDK connection
-  local sdk = require('ado.sdk')
-  state.set('connection', sdk.new(vim.env.ADO_ORG_URL, sdk.auth.pat(vim.env.ADO_PAT)))
+  -- Create SDK connection via centralized client (uses ADO_Lua_SDK)
+  local ado_client = require('ado.ado_client')
+  state.set('connection', ado_client.create_connection(vim.env.ADO_ORG_URL, vim.env.ADO_PAT, {
+    log = require('ado.log'),
+  }))
 end
 
 --- Display help/usage information
@@ -55,6 +57,7 @@ local function show_help()
     '',
     'Commands:',
     '  workitems    Browse work items (list + detail view)',
+    '  pipelines    Browse pipelines (list → runs → run detail)',
     '  controls     Show keybindings by context (game-style controls page)',
     '  help         Show this help message',
     '',
@@ -187,6 +190,8 @@ function M._open_surface(surface)
       return
     end
     require('ado.ui.layout').open_workitems()
+  elseif surface == 'pipelines' then
+    require('ado.ui.pipelines_list').open()
   else
     vim.notify('Unknown command: ' .. surface .. '. Run :Ado help for usage.', vim.log.levels.WARN)
   end

@@ -83,10 +83,10 @@ local function select_current()
   end
 
   local project = projects[project_index]
-  if project and on_select_callback then
-    M.close()
-    on_select_callback(project.name)
-  end
+  if not project then return end
+  local cb = on_select_callback
+  M.close()
+  if cb then cb(project.name) end
 end
 
 --- Move cursor by delta
@@ -113,10 +113,9 @@ local function setup_keymaps()
   local keymaps = config.get().keymaps
 
   vim.keymap.set('n', keymaps.close, function()
+    local cb = on_select_callback
     M.close()
-    if on_select_callback then
-      on_select_callback(nil)
-    end
+    if cb then cb(nil) end
   end, { buffer = picker_buf, desc = 'Cancel project selection' })
 
   vim.keymap.set('n', keymaps.select, function()
