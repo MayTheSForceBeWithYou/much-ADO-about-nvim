@@ -6,14 +6,25 @@ local M = {}
 local config = require('ado.config')
 local state = require('ado.state')
 
+--- Strip CR/LF/whitespace that Windows .env files and `export` lines leave on values.
+---@param s string|nil
+---@return string
+local function sanitize_env_value(s)
+  if type(s) ~= 'string' then
+    return ''
+  end
+  return (s:gsub('[\r\n]', ''):gsub('^%s+', ''):gsub('%s+$', ''))
+end
+
 --- Validate that required environment variables are set
 ---@return boolean ok
 ---@return string? error_message
 local function validate_env()
-  local org_url = vim.env.ADO_ORG_URL
-  local pat = vim.env.ADO_PAT
+  local org_url = sanitize_env_value(vim.env.ADO_ORG_URL)
+  local pat = sanitize_env_value(vim.env.ADO_PAT)
+  local project = sanitize_env_value(vim.env.ADO_PROJECT)
 
-  if not org_url or org_url == '' then
+  if org_url == '' then
     return false, 'ADO_ORG_URL environment variable is required'
   end
 
@@ -23,12 +34,14 @@ local function validate_env()
   end
 
   -- Normalize: strip trailing slash for consistency
-  if org_url:sub(-1) == '/' then
-    org_url = org_url:sub(1, -2)
-    vim.env.ADO_ORG_URL = org_url
+  org_url = org_url:gsub('/+$', '')
+  vim.env.ADO_ORG_URL = org_url
+  vim.env.ADO_PAT = pat
+  if project ~= '' then
+    vim.env.ADO_PROJECT = project
   end
 
-  if not pat or pat == '' then
+  if pat == '' then
     return false, 'ADO_PAT environment variable is required'
   end
 
@@ -73,15 +86,29 @@ local function show_help()
     '  j / k        Navigate items',
     '  R            Refresh current view',
     '  s            Change team / area path scope',
+    '  f            Filter by State (default: hide Closed/Removed)',
+    '  a            Filter by Assignee (default: assigned to me)',
+    '  o            Cycle sort field (ID / State)',
+    '  O            Toggle sort direction (default: ID descending)',
     '  H / L        Shrink / grow list pane width',
+    '',
+    'Work item list defaults:',
+    '  State        Hide Closed and Removed',
+    '  Assignee     Assigned to current user (@Me)',
+    '  Sort         ID descending',
     '',
     'Keybindings (in detail pane):',
     '  q            Close the ADO browser',
     '  <CR> / <BS>  Return to list pane',
     '  j / k        Scroll  |  <C-d> / <C-u>  Half-page  |  gg / G  Top / bottom',
     '  e            Edit State (when cursor is on the State line)',
+    '  a            Edit Assignee (when cursor is on Assigned To line)',
     '  <Tab>        Switch between Details and History tabs',
     '  H / L        Shrink / grow list pane width',
+    '',
+    'Keybindings (project picker):',
+    '  j / k        Navigate  |  <CR> select  |  q cancel',
+    '  s            Toggle name sort ASC/DESC (default: name ASC)',
     '',
     'Team / Area Path (browser-like):',
     '  By default the plugin fetches "my teams" from ADO and remembers',

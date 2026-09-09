@@ -13,8 +13,9 @@ much-ADO-about-nvim brings Azure DevOps directly into Neovim, allowing you to br
 This is the initial scaffold establishing the plugin architecture. Current features:
 
 - `:Ado` command to launch the browser
-- Project selection (when `ADO_PROJECT` is not set)
+- Project selection (when `ADO_PROJECT` is not set), sorted by name
 - Work items list view with detail pane
+- List filters (State, Assignee) and sort (ID / State)
 - Keyboard navigation
 
 ### Non-Goals for Iteration 1
@@ -100,7 +101,13 @@ If `ADO_PROJECT` is not set, you'll be prompted to select a project.
 | `j` / `k` | Navigate items |
 | `R` | Refresh current view |
 | `s` | Change team / area path scope |
+| `f` | Filter by State (default: hide Closed and Removed) |
+| `a` | Filter by Assignee (default: assigned to me) |
+| `o` | Cycle sort field (ID / State) |
+| `O` | Toggle sort direction (default: ID descending) |
 | `H` / `L` | Shrink / grow list pane width |
+
+The list header shows the active assignee filter, state filter, and sort. Changing State or Assignee reloads from Azure DevOps (so the 200-item limit applies after filters). `o` / `O` re-sort the current results without refetching.
 
 ### Detail Pane
 
@@ -112,11 +119,34 @@ If `ADO_PROJECT` is not set, you'll be prompted to select a project.
 | `<C-d>` / `<C-u>` | Half-page scroll |
 | `gg` / `G` | Top / bottom |
 | `e` | Edit State (when cursor is on the State line) |
+| `a` | Edit Assignee (when cursor is on the Assigned To line) |
+| `<Tab>` | Switch between Details and History tabs |
 | `H` / `L` | Shrink / grow list pane width |
+
+### Project Picker
+
+Shown when `ADO_PROJECT` is not set. Projects load sorted by name (A–Z).
+
+| Key | Action |
+|-----|--------|
+| `q` | Cancel and close picker |
+| `<CR>` | Select highlighted project |
+| `j` / `k` | Navigate projects |
+| `s` | Toggle name sort ASC / DESC |
 
 ### Viewing keybindings in Neovim
 
 Run **`:Ado controls`** to open a floating overlay that lists every keybinding by context (List Pane, Detail Pane, Scope Picker, Project Picker)—like a video game’s controls screen. The overlay uses your configured keymaps from `setup()`. Press `q` to close it.
+
+## Work item list filters and sort
+
+Defaults when you open `:Ado workitems`:
+
+- **State:** hide Closed and Removed
+- **Assignee:** only items assigned to the current user (`@Me`)
+- **Sort:** ID descending
+
+Use `f` and `a` to change filters (picker includes All states / Anyone, plus states and teammates seen in the current list). Use `o` to switch between ID and State, and `O` to flip ascending/descending.
 
 ## Configuration
 

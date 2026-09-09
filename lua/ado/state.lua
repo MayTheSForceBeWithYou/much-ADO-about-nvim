@@ -22,6 +22,10 @@ local M = {}
 ---@field team_members ado.sdk.TeamMember[] Preloaded team members for assignee picker
 ---@field detail_tab string Active tab in the detail pane: 'details' or 'history'
 ---@field history_cache table<number, table[]> Lazily-fetched updates arrays keyed by work item ID
+---@field list_sort_field 'id'|'state' Work item list sort field
+---@field list_sort_dir 'asc'|'desc' Work item list sort direction
+---@field list_state_filter string 'active' (hide Closed/Removed), 'all', or a specific state name
+---@field list_assignee_filter string 'me', 'all', 'unassigned', or an assignee email/UPN
 
 ---@type AdoState
 local state = {}
@@ -46,6 +50,10 @@ function M.reset()
     team_members = {},
     detail_tab = 'details',
     history_cache = {},
+    list_sort_field = 'id',
+    list_sort_dir = 'desc',
+    list_state_filter = 'active',
+    list_assignee_filter = 'me',
   }
 end
 

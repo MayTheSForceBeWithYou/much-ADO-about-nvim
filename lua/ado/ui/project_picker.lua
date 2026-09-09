@@ -16,6 +16,11 @@ local picker_buf = nil
 local on_select_callback = nil
 ---@type number Current cursor line (1-indexed)
 local cursor_line = 1
+---@type 'asc'|'desc'
+local sort_dir = 'asc'
+
+--- Header line count (title + divider + blank)
+local HEADER_LINES = 3
 
 --- Format a project for display
 ---@param project table Project data
@@ -35,15 +40,36 @@ local function format_project(project)
   end
 end
 
---- Render the project list
-local function render()
-  if not picker_buf then return end
+--- Projects sorted by name (case-insensitive)
+---@return table[]
+local function sorted_projects()
+  local projects = {}
+  for _, project in ipairs(state.get('projects') or {}) do
+    projects[#projects + 1] = project
+  end
+  table.sort(projects, function(a, b)
+    local na = (a.name or ''):lower()
+    local nb = (b.name or ''):lower()
+    if sort_dir == 'desc' then
+      return na > nb
+    end
+    return na < nb
+  end)
+  return projects
+end
 
-  local projects = state.get('projects') or {}
+--- Render the project list
+---@param opts table|nil Optional: { keep_name = string } to keep cursor on a project
+local function render(opts)
+  if not picker_buf then return end
+  opts = opts or {}
+
+  local projects = sorted_projects()
   local lines = {}
+  local dir_label = sort_dir == 'desc' and 'DESC' or 'ASC'
 
   -- Header
-  table.insert(lines, 'Select a Project')
+  table.insert(lines, string.format('Select a Project  (name %s, s to toggle)', dir_label))
   table.insert(lines, string.rep('=', 40))
   table.insert(lines, '')
 
@@ -63,21 +89,31 @@ local function render()
   vim.api.nvim_buf_set_lines(picker_buf, 0, -1, false, lines)
   vim.bo[picker_buf].modifiable = false
 
-  -- Position cursor on first project (line 4, after header)
+  local first_project_line = HEADER_LINES + 1
+  local target_line = first_project_line
+  if opts.keep_name then
+    for i, project in ipairs(projects) do
+      if project.name == opts.keep_name then
+        target_line = HEADER_LINES + i
+        break
+      end
+    end
+  end
+
   if picker_win and vim.api.nvim_win_is_valid(picker_win) then
-    local first_project_line = 4
-    vim.api.nvim_win_set_cursor(picker_win, { first_project_line, 0 })
-    cursor_line = first_project_line
+    local max_line = math.max(1, #lines)
+    target_line = math.max(1, math.min(target_line, max_line))
+    vim.api.nvim_win_set_cursor(picker_win, { target_line, 0 })
+    cursor_line = target_line
   end
 end
 
 --- Select the current project
 local function select_current()
-  local projects = state.get('projects') or {}
+  local projects = sorted_projects()
   if #projects == 0 then return end
 
-  -- Adjust for header lines
-  local project_index = cursor_line - 3
+  local project_index = cursor_line - HEADER_LINES
   if project_index < 1 or project_index > #projects then
     return
   end
@@ -92,11 +128,11 @@ end
 --- Move cursor by delta
 ---@param delta number
 local function move_cursor(delta)
-  local projects = state.get('projects') or {}
+  local projects = sorted_projects()
   if #projects == 0 then return end
 
-  local first_project_line = 4
-  local last_project_line = 3 + #projects
+  local first_project_line = HEADER_LINES + 1
+  local last_project_line = HEADER_LINES + #projects
 
   cursor_line = cursor_line + delta
   cursor_line = math.max(first_project_line, math.min(cursor_line, last_project_line))
@@ -104,6 +140,18 @@ local function move_cursor(delta)
   if picker_win and vim.api.nvim_win_is_valid(picker_win) then
     vim.api.nvim_win_set_cursor(picker_win, { cursor_line, 0 })
   end
+end
+
+--- Toggle name sort between ASC and DESC
+local function toggle_sort()
+  local projects = sorted_projects()
+  local keep_name
+  local project_index = cursor_line - HEADER_LINES
+  if project_index >= 1 and project_index <= #projects then
+    keep_name = projects[project_index].name
+  end
+  sort_dir = sort_dir == 'asc' and 'desc' or 'asc'
+  render({ keep_name = keep_name })
 end
 
 --- Set up keymaps for the picker
@@ -137,12 +185,17 @@ local function setup_keymaps()
   vim.keymap.set('n', 'k', function()
     move_cursor(-1)
   end, { buffer = picker_buf })
+
+  vim.keymap.set('n', 's', function()
+    toggle_sort()
+  end, { buffer = picker_buf, desc = 'Toggle name sort ASC/DESC' })
 end
 
 --- Open the project picker
 ---@param callback function Called with selected project name (or nil if cancelled)
 function M.open(callback)
   on_select_callback = callback
+  sort_dir = 'asc'
 
   -- Create floating window for picker
   local ui_config = config.get().ui
@@ -189,6 +242,7 @@ function M.close()
   picker_buf = nil
   on_select_callback = nil
   cursor_line = 1
+  sort_dir = 'asc'
 end
 
 --- Check if the picker is open

@@ -6,25 +6,28 @@ if vim.g.loaded_ado then
 end
 vim.g.loaded_ado = true
 
--- Add ADO_Lua_SDK to runtimepath for local development
--- SDK path: ADO_SDK_PATH env var, or ../ADO_Lua_SDK relative to plugin root
+-- Add ADO_Lua_SDK to runtimepath for local development.
+-- SDK path: ADO_SDK_PATH env var, or ../ADO_Lua_SDK relative to plugin root.
+-- APPEND (do not prepend): the SDK also ships lua/ado/init.lua, so prepending
+-- shadows this plugin's require('ado') and makes .setup / .open nil.
 local function ensure_sdk_on_rtp()
+  local plugin_root = vim.fn.fnamemodify(vim.fn.expand('<sfile>:p:h'), ':h')
+  local sibling = vim.fn.fnamemodify(plugin_root .. '/../ADO_Lua_SDK', ':p')
   local sdk_path = vim.env.ADO_SDK_PATH
-  if not sdk_path or sdk_path == '' then
-    local plugin_root = vim.fn.fnamemodify(vim.fn.expand('<sfile>:p:h'), ':h')
-    sdk_path = vim.fn.fnamemodify(plugin_root .. '/../ADO_Lua_SDK', ':p')
+  if not sdk_path or sdk_path == '' or vim.fn.isdirectory(sdk_path) == 0 then
+    sdk_path = sibling
   end
   if vim.fn.isdirectory(sdk_path) == 1 then
-    local rtp_entries = vim.opt.rtp:get()
+    local sdk_path_norm = vim.fn.fnamemodify(sdk_path, ':p')
     local already_present = false
-    for _, entry in ipairs(rtp_entries) do
-      if vim.fn.fnamemodify(entry, ':p') == sdk_path then
+    for _, entry in ipairs(vim.opt.rtp:get()) do
+      if vim.fn.fnamemodify(entry, ':p') == sdk_path_norm then
         already_present = true
         break
       end
     end
     if not already_present then
-      vim.opt.rtp:prepend(sdk_path)
+      vim.opt.rtp:append(sdk_path)
     end
   end
 end

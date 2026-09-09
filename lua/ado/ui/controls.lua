@@ -38,6 +38,10 @@ local function get_controls_data()
         { key = '<prev>', action = 'Previous item' },
         { key = '<refresh>', action = 'Refresh work items list' },
         { key = 's', action = 'Change team / area path scope' },
+        { key = 'f', action = 'Filter by State (default: hide Closed/Removed)' },
+        { key = 'a', action = 'Filter by Assignee (default: assigned to me)' },
+        { key = 'o', action = 'Cycle sort field (ID / State)' },
+        { key = 'O', action = 'Toggle sort direction (default: ID DESC)' },
         { key = 'H', action = 'Shrink list pane width' },
         { key = 'L', action = 'Grow list pane width' },
       },
@@ -92,6 +96,7 @@ local function get_controls_data()
         { key = '<prev>', action = 'Previous project' },
         { key = 'j', action = 'Next project' },
         { key = 'k', action = 'Previous project' },
+        { key = 's', action = 'Toggle name sort ASC/DESC' },
       },
     },
   }

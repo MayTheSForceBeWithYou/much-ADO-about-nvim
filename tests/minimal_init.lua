@@ -19,8 +19,9 @@ local sdk_path = vim.env.ADO_SDK_PATH
 if not sdk_path or sdk_path == '' then
   sdk_path = vim.fn.fnamemodify(vim.fn.getcwd() .. '/../ADO_Lua_SDK', ':p')
 end
+-- Append so the plugin's lua/ado wins over the SDK's lua/ado package name.
 if vim.fn.isdirectory(sdk_path) == 1 then
-  vim.opt.runtimepath:prepend(sdk_path)
+  vim.opt.runtimepath:append(sdk_path)
 end
 
 -- Load plenary

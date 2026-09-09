@@ -18,20 +18,70 @@ local header_offset = 0
 ---@param item table Work item data
 ---@return string
 local function format_item(item)
-  -- TODO: Implement proper formatting based on work item fields
   local fields = item.fields or {}
   local id = item.id or '?'
   local title = fields['System.Title'] or 'Untitled'
-  local type_name = fields['System.WorkItemType'] or ''
   local item_state = fields['System.State'] or ''
+  local assigned = fields['System.AssignedTo']
+  local assignee = ''
+  if type(assigned) == 'table' then
+    assignee = assigned.displayName or assigned.uniqueName or ''
+  elseif type(assigned) == 'string' then
+    assignee = assigned
+  end
 
-  -- Truncate title if too long
-  local max_title_len = 30
+  local max_title_len = 28
   if #title > max_title_len then
     title = title:sub(1, max_title_len - 3) .. '...'
   end
 
-  return string.format('#%-5d [%-8s] %s', id, item_state, title)
+  if state.get('list_assignee_filter') ~= 'me' and assignee ~= '' then
+    if #assignee > 12 then
+      assignee = assignee:sub(1, 9) .. '...'
+    end
+    return string.format('#%-5d [%-14s] %-12s %s', id, item_state, assignee, title)
+  end
+  return string.format('#%-5d [%-14s] %s', id, item_state, title)
+end
+
+local function state_filter_label()
+  local f = state.get('list_state_filter') or 'active'
+  if f == 'active' then
+    return 'hide Closed/Removed'
+  end
+  if f == 'all' then
+    return 'all states'
+  end
+  return f
+end
+
+local function assignee_filter_label()
+  local f = state.get('list_assignee_filter') or 'me'
+  if f == 'me' then
+    return '@Me'
+  end
+  if f == 'all' then
+    return 'anyone'
+  end
+  if f == 'unassigned' then
+    return 'unassigned'
+  end
+  return f
+end
+
+local function sort_label()
+  local field = state.get('list_sort_field') or 'id'
+  local dir = state.get('list_sort_dir') or 'desc'
+  local name = field == 'state' and 'State' or 'ID'
+  return name .. ' ' .. string.upper(dir)
+end
+
+--- Apply current sort to in-memory work items and re-render (no refetch)
+local function apply_sort_and_render()
+  local items = state.get('work_items') or {}
+  require('ado.requests').sort_work_items(items)
+  state.set('work_items', items)
+  M.render()
 end
 
 --- Render the work items list
@@ -42,12 +92,12 @@ function M.render()
   local work_items = state.get('work_items') or {}
   local lines = {}
 
-  -- Scope header
   local area_path = state.get('area_path')
-  if area_path then
-    table.insert(lines, string.format('Scope: %s (UNDER) | Limit: 200', area_path))
-    table.insert(lines, string.rep('-', 40))
-  end
+  local scope = area_path and (area_path .. ' (UNDER)') or 'all'
+  table.insert(lines, string.format('Scope: %s | Limit: 200', scope))
+  table.insert(lines, string.format('%s | %s | %s', assignee_filter_label(), state_filter_label(), sort_label()))
+  table.insert(lines, 'f state  a assignee  o sort  O dir')
+  table.insert(lines, string.rep('-', 40))
   header_offset = #lines
 
   if state.is_loading() then
@@ -124,6 +174,66 @@ function M.setup_keymaps(buf)
       end)
     end
   end, vim.tbl_extend('force', opts, { desc = 'Change scope' }))
+
+  vim.keymap.set('n', 'f', function()
+    local labels = { 'Hide Closed/Removed', 'All states', 'Closed', 'Removed' }
+    local values = { 'active', 'all', 'Closed', 'Removed' }
+    local seen = { active = true, all = true, Closed = true, Removed = true }
+    for _, item in ipairs(state.get('work_items') or {}) do
+      local st = (item.fields or {})['System.State']
+      if type(st) == 'string' and st ~= '' and not seen[st] then
+        seen[st] = true
+        labels[#labels + 1] = st
+        values[#values + 1] = st
+      end
+    end
+    vim.ui.select(labels, { prompt = 'Filter by State' }, function(choice)
+      if not choice then return end
+      for i, label in ipairs(labels) do
+        if label == choice then
+          state.set('list_state_filter', values[i])
+          require('ado').refresh()
+          return
+        end
+      end
+    end)
+  end, vim.tbl_extend('force', opts, { desc = 'Filter by State' }))
+
+  vim.keymap.set('n', 'a', function()
+    local labels = { 'Assigned to me', 'Anyone', 'Unassigned' }
+    local values = { 'me', 'all', 'unassigned' }
+    local seen = { me = true, all = true, unassigned = true }
+    for _, m in ipairs(state.get('team_members') or {}) do
+      local email = m.uniqueName or m.displayName
+      if email and not seen[email] then
+        seen[email] = true
+        labels[#labels + 1] = m.displayName or email
+        values[#values + 1] = m.uniqueName or email
+      end
+    end
+    vim.ui.select(labels, { prompt = 'Filter by Assignee' }, function(choice)
+      if not choice then return end
+      for i, label in ipairs(labels) do
+        if label == choice then
+          state.set('list_assignee_filter', values[i])
+          require('ado').refresh()
+          return
+        end
+      end
+    end)
+  end, vim.tbl_extend('force', opts, { desc = 'Filter by Assignee' }))
+
+  vim.keymap.set('n', 'o', function()
+    local field = state.get('list_sort_field') or 'id'
+    state.set('list_sort_field', field == 'id' and 'state' or 'id')
+    apply_sort_and_render()
+  end, vim.tbl_extend('force', opts, { desc = 'Cycle sort field (ID/State)' }))
+
+  vim.keymap.set('n', 'O', function()
+    local dir = state.get('list_sort_dir') or 'desc'
+    state.set('list_sort_dir', dir == 'desc' and 'asc' or 'desc')
+    apply_sort_and_render()
+  end, vim.tbl_extend('force', opts, { desc = 'Toggle sort direction' }))
 end
 
 --- Move the cursor by delta lines

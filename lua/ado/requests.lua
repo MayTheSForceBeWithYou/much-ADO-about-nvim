@@ -7,10 +7,26 @@ local M = {}
 local state = require('ado.state')
 local log = require('ado.log')
 
---- Get the SDK connection from state
----@return ado.sdk.Connection
-local function get_connection()
-  return state.get('connection')
+--- Get the SDK client (new ADO Lua SDK)
+---@return table|nil client
+---@return string|nil error_message
+local function get_client()
+  return require('ado.ado_client').get()
+end
+
+---@param err any
+---@return string
+local function err_msg(err)
+  if type(err) == 'table' then
+    return err.message or tostring(err)
+  end
+  return tostring(err)
+end
+
+---@param res table|nil
+---@return table
+local function data_value(res)
+  return (res and res.data and res.data.value) or {}
 end
 
 --- Execute a request with stale gating
@@ -114,15 +130,28 @@ function M.load_teams(opts, callback)
     end
   end
   log.debug('load_teams: fetching teams for project=%s mine=%s', project, opts.mine and 'true' or 'false')
+  local client, cerr = get_client()
+  if not client then
+    log.debug('load_teams failed: %s', tostring(cerr))
+    state.set('team_area_paths', {})
+    if callback then callback({}) end
+    return
+  end
+  local params = {}
+  if opts.mine then
+    params['$mine'] = 'true'
+  end
   M.execute(
     function(cb)
-      get_connection():get_core_api():get_teams(project, { mine = opts.mine }, function(err, teams)
-        if err then
-          cb(err.message, nil)
-          return
-        end
-        cb(nil, teams)
-      end)
+      client.projects:list_teams(project, params, {
+        callback = function(res, err)
+          if err then
+            cb(err_msg(err), nil)
+            return
+          end
+          cb(nil, data_value(res))
+        end,
+      })
     end,
     function(teams)
       local paths = {}
@@ -158,14 +187,28 @@ function M.load_states_for_wit(wit_type, callback)
     if callback then callback('Project and work item type required', STATE_FALLBACK) end
     return
   end
-  get_connection():get_work_item_tracking_api():get_work_item_type_states(wit_type, project, function(err, names)
-    if err or not names or #names == 0 then
-      log.debug('load_states_for_wit: using fallback for type "%s" (err=%s)', wit_type, err and err or 'empty')
-      if callback then callback(nil, STATE_FALLBACK) end
-      return
-    end
-    if callback then callback(nil, names) end
-  end)
+  local client, cerr = get_client()
+  if not client then
+    log.debug('load_states_for_wit: using fallback for type "%s" (err=%s)', wit_type, tostring(cerr))
+    if callback then callback(nil, STATE_FALLBACK) end
+    return
+  end
+  client.work_items:get_type_states(wit_type, { project = project }, {
+    callback = function(res, err)
+      local names = {}
+      if not err then
+        for _, s in ipairs(data_value(res)) do
+          names[#names + 1] = type(s) == 'table' and s.name or s
+        end
+      end
+      if err or #names == 0 then
+        log.debug('load_states_for_wit: using fallback for type "%s" (err=%s)', wit_type, err and err_msg(err) or 'empty')
+        if callback then callback(nil, STATE_FALLBACK) end
+        return
+      end
+      if callback then callback(nil, names) end
+    end,
+  })
 end
 
 --- Update work item state via JSON Patch (Content-Type: application/json-patch+json)
@@ -189,15 +232,22 @@ function M.update_state(id, new_state, callback)
     { op = 'add', path = '/fields/System.State', value = new_state },
   }
   log.debug('update_state: PATCH work item #%d state=%s', id, new_state)
+  local client, cerr = get_client()
+  if not client then
+    if callback then callback(cerr) else vim.notify(cerr, vim.log.levels.ERROR) end
+    return
+  end
   M.execute(
     function(cb)
-      get_connection():get_work_item_tracking_api():update_work_item(id, project, patch, function(err, updated)
-        if err then
-          cb(err.message, nil)
-          return
-        end
-        cb(nil, updated)
-      end)
+      client.work_items:update(id, patch, { project = project }, {
+        callback = function(res, err)
+          if err then
+            cb(err_msg(err), nil)
+            return
+          end
+          cb(nil, res and res.data or res)
+        end,
+      })
     end,
     function(updated)
       -- Update in-memory state so detail view shows new state without refetch
@@ -213,6 +263,35 @@ function M.update_state(id, new_state, callback)
   )
 end
 
+--- Sort work items in place using list_sort_field / list_sort_dir.
+--- get_batch does not preserve WIQL order, so the list always re-sorts here.
+---@param items table[]
+---@return table[]
+function M.sort_work_items(items)
+  items = items or {}
+  local field = state.get('list_sort_field') or 'id'
+  local dir = state.get('list_sort_dir') or 'desc'
+  table.sort(items, function(a, b)
+    if field == 'state' then
+      local sa = ((a.fields or {})['System.State'] or ''):lower()
+      local sb = ((b.fields or {})['System.State'] or ''):lower()
+      if sa ~= sb then
+        if dir == 'asc' then
+          return sa < sb
+        end
+        return sa > sb
+      end
+      return (a.id or 0) > (b.id or 0)
+    end
+    local ia, ib = a.id or 0, b.id or 0
+    if dir == 'asc' then
+      return ia < ib
+    end
+    return ia > ib
+  end)
+  return items
+end
+
 --- Fetch and load work items for the current project
 ---@param callback function|nil Called after work items are loaded
 function M.load_work_items(callback)
@@ -226,54 +305,87 @@ function M.load_work_items(callback)
   local where_clauses = { '[System.TeamProject] = @project' }
   if area_path then
     where_clauses[#where_clauses + 1] =
-      string.format("[System.AreaPath] UNDER '%s'", area_path)
+      string.format("[System.AreaPath] UNDER '%s'", area_path:gsub("'", "''"))
   end
 
+  local state_filter = state.get('list_state_filter') or 'active'
+  if state_filter == 'active' then
+    where_clauses[#where_clauses + 1] = "[System.State] NOT IN ('Closed', 'Removed')"
+  elseif state_filter ~= 'all' and state_filter ~= '' then
+    where_clauses[#where_clauses + 1] =
+      string.format("[System.State] = '%s'", tostring(state_filter):gsub("'", "''"))
+  end
+
+  local assignee_filter = state.get('list_assignee_filter') or 'me'
+  if assignee_filter == 'me' then
+    where_clauses[#where_clauses + 1] = '[System.AssignedTo] = @Me'
+  elseif assignee_filter == 'unassigned' then
+    where_clauses[#where_clauses + 1] = "[System.AssignedTo] = ''"
+  elseif assignee_filter ~= 'all' and assignee_filter ~= '' then
+    where_clauses[#where_clauses + 1] =
+      string.format("[System.AssignedTo] = '%s'", tostring(assignee_filter):gsub("'", "''"))
+  end
+
+  local sort_field = state.get('list_sort_field') or 'id'
+  local sort_dir = state.get('list_sort_dir') or 'desc'
+  local order_col = sort_field == 'state' and '[System.State]' or '[System.Id]'
+  local order_dir = sort_dir == 'asc' and 'ASC' or 'DESC'
+
   local wiql = string.format([[
-    SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType]
+    SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo]
     FROM WorkItems
     WHERE %s
-    ORDER BY [System.ChangedDate] DESC
-  ]], table.concat(where_clauses, ' AND '))
+    ORDER BY %s %s
+  ]], table.concat(where_clauses, ' AND '), order_col, order_dir)
 
-  log.debug('load_work_items: querying project=%s', project)
+  log.debug('load_work_items: querying project=%s state=%s assignee=%s sort=%s %s',
+    project, tostring(state_filter), tostring(assignee_filter), sort_field, order_dir)
+  local client, cerr = get_client()
+  if not client then
+    vim.notify('ADO SDK unavailable: ' .. tostring(cerr), vim.log.levels.ERROR)
+    return
+  end
   M.execute(
     function(cb)
-      local wit = get_connection():get_work_item_tracking_api()
-      wit:query_by_wiql(wiql, project, function(err, refs)
-        if err then
-          cb(err.message, nil)
-          return
-        end
-
-        -- Extract IDs and fetch full details
-        local ids = {}
-        for _, ref in ipairs(refs) do
-          table.insert(ids, ref.id)
-        end
-
-        if #ids == 0 then
-          log.debug('load_work_items: WIQL returned 0 results')
-          cb(nil, {})
-          return
-        end
-
-        log.debug('load_work_items: WIQL returned %d refs, fetching details', #ids)
-
-        -- Limit batch size
-        -- TODO: Handle pagination for large result sets
-        ids = vim.list_slice(ids, 1, 200)
-
-        wit:get_work_items(ids, project, function(wi_err, work_items)
-          if wi_err then
-            cb(wi_err.message, nil)
+      client.work_items:run_wiql(wiql, { project = project, ['$top'] = 200 }, {
+        callback = function(res, err)
+          if err then
+            cb(err_msg(err), nil)
             return
           end
-          cb(nil, work_items)
-        end)
-      end)
+
+          local refs = (res and res.data and res.data.workItems) or {}
+          local ids = {}
+          for _, ref in ipairs(refs) do
+            table.insert(ids, ref.id)
+          end
+
+          if #ids == 0 then
+            log.debug('load_work_items: WIQL returned 0 results')
+            cb(nil, {})
+            return
+          end
+
+          log.debug('load_work_items: WIQL returned %d refs, fetching details', #ids)
+
+          -- Limit batch size
+          -- TODO: Handle pagination for large result sets
+          ids = vim.list_slice(ids, 1, 200)
+
+          client.work_items:get_batch(ids, { project = project, ['$expand'] = 'all' }, {
+            callback = function(bres, berr)
+              if berr then
+                cb(err_msg(berr), nil)
+                return
+              end
+              cb(nil, data_value(bres))
+            end,
+          })
+        end,
+      })
     end,
     function(work_items)
+      work_items = M.sort_work_items(work_items or {})
       log.debug('load_work_items: loaded %d work items', #work_items)
       state.set('work_items', work_items)
       -- Background: preload team members for assignee picker
@@ -463,27 +575,34 @@ function M.ensure_layout(wit_type, callback)
   end
 
   log.debug('ensure_layout: fetching layout for "%s"', wit_type)
+  local client, cerr = get_client()
+  if not client then
+    log.debug('ensure_layout: failed for "%s": %s', wit_type, tostring(cerr))
+    return
+  end
+  local project = state.get('project')
   M.execute(
     function(cb)
-      local conn = get_connection()
-      local project = state.get('project')
-      conn:get_work_item_tracking_api():get_work_item_type(wit_type, project, function(err, wit_def)
-        if err then cb(err.message, nil) return end
-        if not wit_def.xmlForm or wit_def.xmlForm == '' then
-          cb('No form layout available', nil)
-          return
-        end
-        log.debug('ensure_layout: parsing xmlForm for "%s" (%d bytes)', wit_type, #wit_def.xmlForm)
-        local ok, form_layout = pcall(xml_form_to_layout, wit_def.xmlForm)
-        if not ok then
-          cb('Failed to parse form layout: ' .. tostring(form_layout), nil)
-          return
-        end
-        local n_pages = #(form_layout.pages or {})
-        local n_sys = #(form_layout.systemControls or {})
-        log.debug('ensure_layout: parsed layout for "%s" (%d pages, %d system controls)', wit_type, n_pages, n_sys)
-        cb(nil, form_layout)
-      end)
+      client.work_items:get_type(wit_type, { project = project }, {
+        callback = function(res, err)
+          if err then cb(err_msg(err), nil) return end
+          local wit_def = res and res.data or {}
+          if not wit_def.xmlForm or wit_def.xmlForm == '' then
+            cb('No form layout available', nil)
+            return
+          end
+          log.debug('ensure_layout: parsing xmlForm for "%s" (%d bytes)', wit_type, #wit_def.xmlForm)
+          local ok, form_layout = pcall(xml_form_to_layout, wit_def.xmlForm)
+          if not ok then
+            cb('Failed to parse form layout: ' .. tostring(form_layout), nil)
+            return
+          end
+          local n_pages = #(form_layout.pages or {})
+          local n_sys = #(form_layout.systemControls or {})
+          log.debug('ensure_layout: parsed layout for "%s" (%d pages, %d system controls)', wit_type, n_pages, n_sys)
+          cb(nil, form_layout)
+        end,
+      })
     end,
     function(form_layout)
       log.debug('ensure_layout: cached layout for "%s"', wit_type)
@@ -519,8 +638,12 @@ function M.load_team_members(callback)
     return
   end
 
-  local conn = get_connection()
-  local core = conn:get_core_api()
+  local client, cerr = get_client()
+  if not client then
+    log.debug('load_team_members: %s', tostring(cerr))
+    if callback then callback({}) end
+    return
+  end
   local pending = #cached_teams
   local all_members = {}
   local seen = {}
@@ -535,25 +658,33 @@ function M.load_team_members(callback)
         if callback then callback(all_members) end
       end
     else
-      core:get_team_members(project, team_id, function(err, members)
-        if not err and members then
-          for _, m in ipairs(members) do
-            local key = m.uniqueName or m.displayName
-            if key and not seen[key] then
-              seen[key] = true
-              table.insert(all_members, m)
+      client.projects:list_team_members(project, team_id, {}, {
+        callback = function(res, err)
+          if not err then
+            for _, m in ipairs(data_value(res)) do
+              local ident = m.identity or m
+              local member = {
+                id = ident.id or m.id,
+                displayName = ident.displayName or m.displayName,
+                uniqueName = ident.uniqueName or m.uniqueName,
+              }
+              local key = member.uniqueName or member.displayName
+              if key and not seen[key] then
+                seen[key] = true
+                table.insert(all_members, member)
+              end
             end
+          else
+            log.debug('load_team_members: error for team %s: %s', team_id, err_msg(err))
           end
-        else
-          log.debug('load_team_members: error for team %s: %s', team_id, err and err.message or 'unknown')
-        end
-        pending = pending - 1
-        if pending == 0 then
-          state.set('team_members', all_members)
-          log.debug('load_team_members: loaded %d unique members', #all_members)
-          if callback then callback(all_members) end
-        end
-      end)
+          pending = pending - 1
+          if pending == 0 then
+            state.set('team_members', all_members)
+            log.debug('load_team_members: loaded %d unique members', #all_members)
+            if callback then callback(all_members) end
+          end
+        end,
+      })
     end
   end
 end
@@ -579,7 +710,7 @@ function M.load_history(work_item_id, callback)
     return
   end
 
-  local ado_client, cerr = require('ado.ado_client').get()
+  local ado_client, cerr = get_client()
   if not ado_client then
     local msg = 'ADO SDK unavailable: ' .. tostring(cerr)
     log.debug('load_history: %s', msg)
@@ -615,15 +746,41 @@ function M.search_identities(query, callback)
     if callback then callback(nil, {}) end
     return
   end
-  local conn = get_connection()
-  conn:get_identity_api():search(query, function(err, identities)
-    if err then
-      log.debug('search_identities: error: %s', err.message or tostring(err))
-      if callback then callback(err.message, nil) end
-      return
-    end
-    if callback then callback(nil, identities or {}) end
-  end)
+  local client, cerr = get_client()
+  if not client then
+    if callback then callback(tostring(cerr), nil) end
+    return
+  end
+  client.identity:search(query, {}, {
+    callback = function(res, err)
+      if err then
+        log.debug('search_identities: error: %s', err_msg(err))
+        if callback then callback(err_msg(err), nil) end
+        return
+      end
+local identities = data_value(res)
+        if #identities == 0 and res and res.data and type(res.data.identities) == 'table' then
+          identities = res.data.identities
+        end
+        local mapped = {}
+        for _, id in ipairs(identities) do
+          local props = id.properties or {}
+          local function prop(name)
+            local p = props[name]
+            if type(p) == 'table' then
+              return p['$value'] or p.value
+            end
+            return p
+          end
+          mapped[#mapped + 1] = {
+            id = id.id,
+            displayName = id.providerDisplayName or id.displayName,
+            email = prop('Mail') or prop('Account') or id.uniqueName or id.email or '',
+          }
+        end
+        if callback then callback(nil, mapped) end
+    end,
+  })
 end
 
 --- Update a work item's assignee via JSON Patch
@@ -647,15 +804,22 @@ function M.update_assignee(id, email, callback)
     { op = 'add', path = '/fields/System.AssignedTo', value = email or '' },
   }
   log.debug('update_assignee: PATCH work item #%d assignee=%s', id, email or '(clear)')
+  local client, cerr = get_client()
+  if not client then
+    if callback then callback(cerr) else vim.notify(cerr, vim.log.levels.ERROR) end
+    return
+  end
   M.execute(
     function(cb)
-      get_connection():get_work_item_tracking_api():update_work_item(id, project, patch, function(err, updated)
-        if err then
-          cb(err.message, nil)
-          return
-        end
-        cb(nil, updated)
-      end)
+      client.work_items:update(id, patch, { project = project }, {
+        callback = function(res, err)
+          if err then
+            cb(err_msg(err), nil)
+            return
+          end
+          cb(nil, res and res.data or res)
+        end,
+      })
     end,
     function(updated)
       local item = state.get('selected_work_item')
