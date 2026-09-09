@@ -105,9 +105,12 @@ If `ADO_PROJECT` is not set, you'll be prompted to select a project.
 | `a` | Filter by Assignee (default: assigned to me) |
 | `o` | Cycle sort field (ID / State) |
 | `O` | Toggle sort direction (default: ID descending) |
+| `d` | Toggle list-only (hide detail; full-width columns) |
 | `H` / `L` | Shrink / grow list pane width |
 
 The list header shows the active assignee filter, state filter, and sort. Changing State or Assignee reloads from Azure DevOps (so the 200-item limit applies after filters). `o` / `O` re-sort the current results without refetching.
+
+Press **`d`** to hide the detail pane so the list uses the full window. Rows then include Type, Assignee, the full Title (as width allows), and a Description snippet. Press `d` again (or `<CR>` on an item) to restore the split.
 
 ### Detail Pane
 
@@ -121,6 +124,7 @@ The list header shows the active assignee filter, state filter, and sort. Changi
 | `e` | Edit State (when cursor is on the State line) |
 | `a` | Edit Assignee (when cursor is on the Assigned To line) |
 | `<Tab>` | Switch between Details and History tabs |
+| `d` | Hide detail (list-only full-width list) |
 | `H` / `L` | Shrink / grow list pane width |
 
 ### Project Picker
