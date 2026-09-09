@@ -123,9 +123,12 @@ Press **`d`** to hide the detail pane so the list uses the full window. Rows the
 | `gg` / `G` | Top / bottom |
 | `e` | Edit State (when cursor is on the State line) |
 | `a` | Edit Assignee (when cursor is on the Assigned To line) |
-| `<Tab>` | Switch between Details and History tabs |
+| `<Tab>` | Cycle Details / History / Comments tabs |
+| `c` | Add a comment (`<C-s>` to post, `q` to cancel) |
 | `d` | Hide detail (list-only full-width list) |
 | `H` / `L` | Shrink / grow list pane width |
+
+`<Tab>` cycles **Details → History → Comments**. Comments are discussion threads on the work item (HTML stripped). Press **`c`** from any detail tab to write a new comment.
 
 ### Project Picker
 

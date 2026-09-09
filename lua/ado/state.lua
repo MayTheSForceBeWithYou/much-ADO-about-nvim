@@ -20,8 +20,9 @@ local M = {}
 ---@field area_mode string Area path mode (always "under" for now)
 ---@field team_area_paths string[] Area paths from "my teams" API (projectName\teamName), used by scope picker when team_scopes not set
 ---@field team_members ado.sdk.TeamMember[] Preloaded team members for assignee picker
----@field detail_tab string Active tab in the detail pane: 'details' or 'history'
+---@field detail_tab string Active tab in the detail pane: 'details', 'history', or 'comments'
 ---@field history_cache table<number, table[]> Lazily-fetched updates arrays keyed by work item ID
+---@field comments_cache table<number, table[]> Lazily-fetched comments arrays keyed by work item ID
 ---@field list_sort_field 'id'|'state' Work item list sort field
 ---@field list_sort_dir 'asc'|'desc' Work item list sort direction
 ---@field list_state_filter string 'active' (hide Closed/Removed), 'all', or a specific state name
@@ -50,6 +51,7 @@ function M.reset()
     team_members = {},
     detail_tab = 'details',
     history_cache = {},
+    comments_cache = {},
     list_sort_field = 'id',
     list_sort_dir = 'desc',
     list_state_filter = 'active',
