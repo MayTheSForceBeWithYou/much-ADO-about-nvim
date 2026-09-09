@@ -738,6 +738,96 @@ function M.load_history(work_item_id, callback)
   })
 end
 
+--- Fetch work item comments lazily (cache on first load).
+---@param work_item_id number Work item ID
+---@param callback fun(err: string|nil, comments: table[]|nil)
+function M.load_comments(work_item_id, callback)
+  local project = state.get('project')
+  if not project then
+    if callback then callback('No project selected', nil) end
+    return
+  end
+
+  local comments_cache = state.get('comments_cache') or {}
+  if comments_cache[work_item_id] then
+    log.debug('load_comments: cache hit for #%d', work_item_id)
+    if callback then callback(nil, comments_cache[work_item_id]) end
+    return
+  end
+
+  local ado_client, cerr = get_client()
+  if not ado_client then
+    local msg = 'ADO SDK unavailable: ' .. tostring(cerr)
+    log.debug('load_comments: %s', msg)
+    if callback then callback(msg, nil) end
+    return
+  end
+
+  log.debug('load_comments: fetching comments for #%d project=%s', work_item_id, project)
+  ado_client.work_items:get_comments(work_item_id, { project = project }, {
+    callback = function(res, err)
+      if err then
+        local msg = err.message or tostring(err)
+        log.debug('load_comments: error for #%d: %s', work_item_id, msg)
+        if callback then callback(msg, nil) end
+        return
+      end
+      local data = res and res.data or {}
+      local comments = data.comments or data.value or {}
+      log.debug('load_comments: got %d comments for #%d', #comments, work_item_id)
+      local cc = state.get('comments_cache') or {}
+      cc[work_item_id] = comments
+      state.set('comments_cache', cc)
+      if callback then callback(nil, comments) end
+    end,
+  })
+end
+
+--- Post a new discussion comment on a work item.
+---@param work_item_id number
+---@param text string
+---@param callback fun(err: string|nil)
+function M.add_comment(work_item_id, text, callback)
+  local project = state.get('project')
+  if not project then
+    local err = 'No project selected'
+    if callback then callback(err) else vim.notify(err, vim.log.levels.ERROR) end
+    return
+  end
+  if not work_item_id then
+    local err = 'Work item ID is required'
+    if callback then callback(err) else vim.notify(err, vim.log.levels.ERROR) end
+    return
+  end
+  if type(text) ~= 'string' or not text:match('%S') then
+    local err = 'Comment text is required'
+    if callback then callback(err) else vim.notify(err, vim.log.levels.WARN) end
+    return
+  end
+
+  local client, cerr = get_client()
+  if not client then
+    if callback then callback(tostring(cerr)) else vim.notify(tostring(cerr), vim.log.levels.ERROR) end
+    return
+  end
+
+  log.debug('add_comment: posting comment on #%d', work_item_id)
+  client.work_items:add_comment(work_item_id, text, { project = project }, {
+    callback = function(_res, err)
+      if err then
+        local msg = err_msg(err)
+        log.debug('add_comment: error for #%d: %s', work_item_id, msg)
+        if callback then callback(msg) else vim.notify(msg, vim.log.levels.ERROR) end
+        return
+      end
+      local cc = state.get('comments_cache') or {}
+      cc[work_item_id] = nil
+      state.set('comments_cache', cc)
+      if callback then callback(nil) end
+    end,
+  })
+end
+
 --- Search identities org-wide via vssps API (for assignee typeahead)
 ---@param query string Search prefix
 ---@param callback fun(err: string|nil, identities: ado.sdk.Identity[]|nil)

@@ -78,23 +78,24 @@ end
 -- ---------------------------------------------------------------------------
 
 --- Return the two-line tab bar header.
----@param active string 'details' or 'history'
+---@param active string 'details', 'history', or 'comments'
 ---@return string[]
 function M.tab_bar(active)
   local sep = string.rep('━', 50)
-  if active == 'history' then
-    return {
-      '  Details             ▸ History        (<Tab> to switch)',
-      '  ' .. sep,
-      '',
-    }
-  else
-    return {
-      '  ▸ Details              History        (<Tab> to switch)',
-      '  ' .. sep,
-      '',
-    }
+  local function mark(name, key)
+    if active == key then
+      return '▸ ' .. name
+    end
+    return '  ' .. name
   end
+  return {
+    string.format('  %s  %s  %s  (<Tab>)',
+      mark('Details', 'details'),
+      mark('History', 'history'),
+      mark('Comments', 'comments')),
+    '  ' .. sep,
+    '',
+  }
 end
 
 -- ---------------------------------------------------------------------------

@@ -179,36 +179,23 @@ local function setup_detail_keymaps(buf)
     end)
   end, vim.tbl_extend('force', opts, { desc = 'Edit State (on State line)' }))
 
-  -- Switch between Details and History tabs
+  -- Switch Details / History / Comments tabs
   vim.keymap.set('n', '<Tab>', function()
-    local state_mod = require('ado.state')
-    local current_tab = state_mod.get('detail_tab') or 'details'
-    local history_mod = require('ado.ui.history')
-
-    if current_tab == 'details' then
-      -- Switch to History: render loading placeholder, then fetch lazily
-      state_mod.set('detail_tab', 'history')
-      local item = state_mod.get('selected_work_item')
-      if not item then return end
-
-      -- Show loading state immediately
-      history_mod.render(buf, nil, nil)
-
-      -- Fetch updates (cached after first load)
-      require('ado.requests').load_history(item.id, function(err, updates)
-        -- Guard: only update if still on history tab for this item
-        local still_selected = state_mod.get('selected_work_item')
-        if state_mod.get('detail_tab') == 'history'
-            and still_selected and still_selected.id == item.id then
-          history_mod.render(buf, updates, err)
-        end
-      end)
-    else
-      -- Switch back to Details
-      state_mod.set('detail_tab', 'details')
-      require('ado.ui.detail').render()
+    local current = require('ado.state').get('detail_tab') or 'details'
+    local order = { 'details', 'history', 'comments' }
+    local next_tab = 'details'
+    for i, name in ipairs(order) do
+      if name == current then
+        next_tab = order[(i % #order) + 1]
+        break
+      end
     end
-  end, vim.tbl_extend('force', opts, { desc = 'Switch History / Details tab' }))
+    M.show_detail_tab(next_tab)
+  end, vim.tbl_extend('force', opts, { desc = 'Switch Details / History / Comments' }))
+
+  vim.keymap.set('n', 'c', function()
+    require('ado.ui.comment_composer').open()
+  end, vim.tbl_extend('force', opts, { desc = 'Add comment' }))
 
   -- Edit Assignee: only when cursor is on the "Assigned To:" line
   vim.keymap.set('n', 'a', function()
@@ -238,6 +225,38 @@ local function setup_detail_keymaps(buf)
       end)
     end)
   end, vim.tbl_extend('force', opts, { desc = 'Edit Assignee (on Assigned To line)' }))
+end
+
+--- Show a detail-pane tab ('details', 'history', or 'comments')
+---@param tab string
+function M.show_detail_tab(tab)
+  local state_mod = require('ado.state')
+  local buf = layout.detail_buf
+  local item = state_mod.get('selected_work_item')
+  state_mod.set('detail_tab', tab)
+  if not item or not buf or not vim.api.nvim_buf_is_valid(buf) then
+    return
+  end
+
+  if tab == 'history' then
+    local history_mod = require('ado.ui.history')
+    history_mod.render(buf, nil, nil)
+    require('ado.requests').load_history(item.id, function(err, updates)
+      local still = state_mod.get('selected_work_item')
+      if state_mod.get('detail_tab') == 'history'
+          and still and still.id == item.id then
+        history_mod.render(buf, updates, err)
+      end
+    end)
+    return
+  end
+
+  if tab == 'comments' then
+    require('ado.ui.comments').show(buf)
+    return
+  end
+
+  require('ado.ui.detail').render()
 end
 
 --- Whether the list is using the full editor (detail pane hidden)
