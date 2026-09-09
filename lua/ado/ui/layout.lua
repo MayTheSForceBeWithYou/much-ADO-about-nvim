@@ -12,6 +12,7 @@ local state = require('ado.state')
 ---@field list_buf number|nil List pane buffer ID
 ---@field detail_win number|nil Detail pane window ID
 ---@field detail_buf number|nil Detail pane buffer ID
+---@field list_only boolean True when the detail pane is hidden
 
 ---@type AdoLayout
 local layout = {
@@ -19,6 +20,7 @@ local layout = {
   list_buf = nil,
   detail_win = nil,
   detail_buf = nil,
+  list_only = false,
 }
 
 --- Check if the layout is currently open
@@ -128,6 +130,12 @@ local function setup_detail_keymaps(buf)
       vim.api.nvim_set_current_win(layout.list_win)
     end
   end, vim.tbl_extend('force', opts, { desc = 'Back to list' }))
+  vim.keymap.set('n', 'd', function()
+    M.toggle_list_only()
+    if layout.list_win and vim.api.nvim_win_is_valid(layout.list_win) then
+      vim.api.nvim_set_current_win(layout.list_win)
+    end
+  end, vim.tbl_extend('force', opts, { desc = 'Toggle list-only (hide/show detail)' }))
 
   -- Edit State: only when cursor is on the "State:" line; options are valid states for this work item type
   vim.keymap.set('n', 'e', function()
@@ -232,6 +240,77 @@ local function setup_detail_keymaps(buf)
   end, vim.tbl_extend('force', opts, { desc = 'Edit Assignee (on Assigned To line)' }))
 end
 
+--- Whether the list is using the full editor (detail pane hidden)
+---@return boolean
+function M.is_list_only()
+  return layout.list_only == true
+end
+
+--- Hide or restore the detail pane
+function M.toggle_list_only()
+  if not M.is_open() then
+    return
+  end
+  if layout.list_only then
+    M.show_detail_pane()
+  else
+    M.hide_detail_pane()
+  end
+  require('ado.ui.list').render()
+end
+
+--- Hide the detail pane so the list uses the full width
+function M.hide_detail_pane()
+  if layout.list_only then
+    return
+  end
+  if layout.detail_buf and vim.api.nvim_buf_is_valid(layout.detail_buf) then
+    vim.bo[layout.detail_buf].bufhidden = 'hide'
+  end
+  if layout.detail_win and vim.api.nvim_win_is_valid(layout.detail_win) then
+    pcall(vim.api.nvim_win_close, layout.detail_win, true)
+  end
+  layout.detail_win = nil
+  layout.list_only = true
+  if layout.list_win and vim.api.nvim_win_is_valid(layout.list_win) then
+    vim.wo[layout.list_win].wrap = false
+  end
+end
+
+--- Restore the list + detail split
+function M.show_detail_pane()
+  if not layout.list_only then
+    return
+  end
+  if not layout.list_win or not vim.api.nvim_win_is_valid(layout.list_win) then
+    return
+  end
+  vim.api.nvim_set_current_win(layout.list_win)
+  vim.cmd('rightbelow vsplit')
+  layout.detail_win = vim.api.nvim_get_current_win()
+
+  if not layout.detail_buf or not vim.api.nvim_buf_is_valid(layout.detail_buf) then
+    layout.detail_buf = create_buffer()
+    if layout.detail_buf == 0 then
+      vim.notify('Failed to recreate detail buffer', vim.log.levels.ERROR)
+      layout.list_only = false
+      return
+    end
+    vim.api.nvim_win_set_buf(layout.detail_win, layout.detail_buf)
+    configure_buffer(layout.detail_buf, 'ado://workitem-detail')
+    setup_common_keymaps(layout.detail_buf)
+    setup_detail_keymaps(layout.detail_buf)
+  else
+    vim.api.nvim_win_set_buf(layout.detail_win, layout.detail_buf)
+    vim.bo[layout.detail_buf].bufhidden = 'wipe'
+  end
+
+  vim.api.nvim_set_current_win(layout.list_win)
+  vim.api.nvim_win_set_width(layout.list_win, config.get().ui.list_width)
+  layout.list_only = false
+  require('ado.ui.detail').render()
+end
+
 --- Open the work items layout (list + detail split)
 function M.open_workitems()
   -- Always clean up first to handle stale state
@@ -268,6 +347,8 @@ function M.open_workitems()
   -- Set list width (focus list first since set_width applies to target window)
   vim.api.nvim_set_current_win(layout.list_win)
   vim.api.nvim_win_set_width(layout.list_win, ui_config.list_width)
+  vim.wo[layout.list_win].wrap = false
+  layout.list_only = false
 
   -- Step 3: Now configure buffers (including bufhidden=wipe) - safe because they're in windows
   configure_buffer(layout.list_buf, 'ado://workitems')
@@ -315,6 +396,7 @@ function M.close()
   layout.list_buf = nil
   layout.detail_win = nil
   layout.detail_buf = nil
+  layout.list_only = false
 end
 
 --- Get the list buffer
@@ -344,6 +426,9 @@ end
 --- Resize the list pane by delta columns
 ---@param delta number Positive = wider, negative = narrower
 function M.resize_list(delta)
+  if layout.list_only then
+    return
+  end
   if not layout.list_win or not vim.api.nvim_win_is_valid(layout.list_win) then
     return
   end

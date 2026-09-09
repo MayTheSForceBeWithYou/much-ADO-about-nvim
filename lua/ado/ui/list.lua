@@ -14,34 +14,135 @@ local cursor_line = 1
 ---@type number Number of header lines before work items start
 local header_offset = 0
 
+local function identity_name(val)
+  if type(val) == 'table' then
+    return val.displayName or val.uniqueName or ''
+  end
+  if type(val) == 'string' then
+    return val
+  end
+  return ''
+end
+
+--- Strip HTML tags and decode common entities (ADO descriptions are HTML)
+---@param text string
+---@return string
+local function strip_html(text)
+  text = text:gsub('<br%s*/?>', ' ')
+  text = text:gsub('<p.->', ' ')
+  text = text:gsub('</p>', ' ')
+  text = text:gsub('<div.->', ' ')
+  text = text:gsub('</div>', ' ')
+  text = text:gsub('<[^>]+>', '')
+  text = text:gsub('&nbsp;', ' ')
+  text = text:gsub('&amp;', '&')
+  text = text:gsub('&lt;', '<')
+  text = text:gsub('&gt;', '>')
+  text = text:gsub('&quot;', '"')
+  text = text:gsub('%s+', ' ')
+  return vim.trim(text)
+end
+
+---@param s string
+---@param max number
+---@return string
+local function truncate(s, max)
+  s = s or ''
+  if max < 1 then
+    return ''
+  end
+  if vim.fn.strdisplaywidth(s) <= max then
+    return s
+  end
+  if max <= 3 then
+    return vim.fn.strcharpart(s, 0, max)
+  end
+  local t = s
+  while vim.fn.strdisplaywidth(t) > max - 3 and vim.fn.strchars(t) > 0 do
+    t = vim.fn.strcharpart(t, 0, vim.fn.strchars(t) - 1)
+  end
+  return t .. '...'
+end
+
+---@param s string
+---@param w number
+---@return string
+local function pad(s, w)
+  s = truncate(s or '', w)
+  return s .. string.rep(' ', math.max(0, w - vim.fn.strdisplaywidth(s)))
+end
+
+---@return number
+local function list_width()
+  local win = layout.get_list_win()
+  if win and vim.api.nvim_win_is_valid(win) then
+    return vim.api.nvim_win_get_width(win)
+  end
+  return config.get().ui.list_width or 60
+end
+
+-- Fixed-width columns in list-only mode (ID Type State Assignee)
+local COL_ID, COL_TYPE, COL_STATE, COL_ASSIGNEE = 7, 12, 14, 16
+
+---@param width number
+---@return string
+local function format_column_header(width)
+  local prefix = pad('ID', COL_ID)
+    .. ' ' .. pad('Type', COL_TYPE)
+    .. ' ' .. pad('State', COL_STATE)
+    .. ' ' .. pad('Assignee', COL_ASSIGNEE)
+    .. ' '
+  local rest = math.max(8, width - vim.fn.strdisplaywidth(prefix))
+  local title_w = math.max(8, math.floor(rest * 0.55))
+  local desc_w = math.max(0, rest - title_w - 1)
+  if desc_w < 8 then
+    return prefix .. pad('Title', rest)
+  end
+  return prefix .. pad('Title', title_w) .. ' ' .. pad('Description', desc_w)
+end
+
 --- Format a work item for display in the list
 ---@param item table Work item data
+---@param width number Current list window width
 ---@return string
-local function format_item(item)
+local function format_item(item, width)
   local fields = item.fields or {}
-  local id = item.id or '?'
+  local id = item.id or 0
   local title = fields['System.Title'] or 'Untitled'
   local item_state = fields['System.State'] or ''
-  local assigned = fields['System.AssignedTo']
-  local assignee = ''
-  if type(assigned) == 'table' then
-    assignee = assigned.displayName or assigned.uniqueName or ''
-  elseif type(assigned) == 'string' then
-    assignee = assigned
-  end
+  local assignee = identity_name(fields['System.AssignedTo'])
+  local wit_type = fields['System.WorkItemType'] or ''
 
-  local max_title_len = 28
-  if #title > max_title_len then
-    title = title:sub(1, max_title_len - 3) .. '...'
-  end
-
-  if state.get('list_assignee_filter') ~= 'me' and assignee ~= '' then
-    if #assignee > 12 then
-      assignee = assignee:sub(1, 9) .. '...'
+  if layout.is_list_only() then
+    local desc = fields['System.Description']
+    if type(desc) ~= 'string' then
+      desc = ''
+    else
+      desc = strip_html(desc)
     end
-    return string.format('#%-5d [%-14s] %-12s %s', id, item_state, assignee, title)
+    local prefix = pad(string.format('#%-5d', id), COL_ID)
+      .. ' ' .. pad(wit_type, COL_TYPE)
+      .. ' ' .. pad(item_state, COL_STATE)
+      .. ' ' .. pad(assignee, COL_ASSIGNEE)
+      .. ' '
+    local rest = math.max(8, width - vim.fn.strdisplaywidth(prefix))
+    local title_w = math.max(8, math.floor(rest * 0.55))
+    local desc_w = math.max(0, rest - title_w - 1)
+    if desc_w < 8 then
+      return prefix .. truncate(title, rest)
+    end
+    return prefix .. pad(title, title_w) .. ' ' .. truncate(desc, desc_w)
   end
-  return string.format('#%-5d [%-14s] %s', id, item_state, title)
+
+  local show_assignee = state.get('list_assignee_filter') ~= 'me' and assignee ~= ''
+  local prefix
+  if show_assignee then
+    prefix = string.format('#%-5d [%-14s] %-12s ', id, item_state, truncate(assignee, 12))
+  else
+    prefix = string.format('#%-5d [%-14s] ', id, item_state)
+  end
+  local title_w = math.max(8, width - vim.fn.strdisplaywidth(prefix))
+  return prefix .. truncate(title, title_w)
 end
 
 local function state_filter_label()
@@ -94,11 +195,25 @@ function M.render()
 
   local area_path = state.get('area_path')
   local scope = area_path and (area_path .. ' (UNDER)') or 'all'
+  local width = list_width()
   table.insert(lines, string.format('Scope: %s | Limit: 200', scope))
   table.insert(lines, string.format('%s | %s | %s', assignee_filter_label(), state_filter_label(), sort_label()))
-  table.insert(lines, 'f state  a assignee  o sort  O dir')
-  table.insert(lines, string.rep('-', 40))
+  if layout.is_list_only() then
+    table.insert(lines, 'f state  a assignee  o sort  O dir  d split')
+  else
+    table.insert(lines, 'f state  a assignee  o sort  O dir  d list')
+  end
+  table.insert(lines, string.rep('-', math.min(width, 80)))
+  if layout.is_list_only() then
+    table.insert(lines, format_column_header(width))
+  end
+  local prev_offset = header_offset
   header_offset = #lines
+  local item_idx = cursor_line - prev_offset
+  if item_idx < 1 then
+    item_idx = 1
+  end
+  cursor_line = header_offset + item_idx
 
   if state.is_loading() then
     table.insert(lines, 'Loading...')
@@ -108,7 +223,7 @@ function M.render()
     table.insert(lines, 'Press R to refresh')
   else
     for _, item in ipairs(work_items) do
-      table.insert(lines, format_item(item))
+      table.insert(lines, format_item(item, width))
     end
   end
 
@@ -118,6 +233,9 @@ function M.render()
   vim.bo[buf].modifiable = false
 
   -- Restore cursor position (ensure it's on a work item line, not header)
+  if #work_items > 0 then
+    cursor_line = math.max(header_offset + 1, math.min(cursor_line, header_offset + #work_items))
+  end
   local win = layout.get_list_win()
   if win and vim.api.nvim_win_is_valid(win) then
     local line = math.max(header_offset + 1, math.min(cursor_line, #lines))
@@ -139,6 +257,9 @@ function M.setup_keymaps(buf)
 
   vim.keymap.set('n', keymaps.select, function()
     M.select_current()
+    if layout.is_list_only() then
+      layout.toggle_list_only()
+    end
     -- Focus the detail pane so the user can scroll/read it
     local detail_win = layout.get_detail_win()
     if detail_win and vim.api.nvim_win_is_valid(detail_win) then
@@ -234,6 +355,10 @@ function M.setup_keymaps(buf)
     state.set('list_sort_dir', dir == 'desc' and 'asc' or 'desc')
     apply_sort_and_render()
   end, vim.tbl_extend('force', opts, { desc = 'Toggle sort direction' }))
+
+  vim.keymap.set('n', 'd', function()
+    layout.toggle_list_only()
+  end, vim.tbl_extend('force', opts, { desc = 'Toggle list-only (hide/show detail)' }))
 end
 
 --- Move the cursor by delta lines
